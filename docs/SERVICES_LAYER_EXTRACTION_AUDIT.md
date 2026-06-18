@@ -57,7 +57,8 @@ designed before extraction**.
 
 ### 2.1 `config.py` — **KEEP-IN-CORE (the spine)**, but internally over-stuffed
 
-`config.py` is **~1,800 lines** — nearly 3× the 600-line cap (SKILL §12.1 rule 3).
+`config.py` is **1,743 lines** (verified: `Get-Content config.py | Measure-Object
+-Line` → 1743) — **≈2.9× the 600-line cap** (SKILL §12.1 rule 3).
 It is unambiguously HARNESS at the module level: `ensure_config_exists`,
 `get_value`/`set_value`, and the directory constants are read during BOOT by the
 plugin loader and the model factory. You cannot stub it. **But** it is a grab-bag
@@ -195,7 +196,7 @@ bead, **not** part of this spike.
 | `version_checker.py` ⭐ | PLUGIN-CANDIDATE | LOW | LOW | Canonical `startup` hook; already bus-only. |
 | `error_logging.py` | PLUGIN-CANDIDATE | LOW | LOW | Observability plugin via `agent_exception`. |
 | `uvx_detection.py` | PLUGIN-CANDIDATE | LOW-MED | LOW | Consumers in `command_line`/`keymap` → coordinate with `tp4.4`. |
-| `config.py` split | KEEP (refactor) | MED | MED | 1,800 lines; cut feature clusters per §3. Touches everything → careful. |
+| `config.py` split | KEEP (refactor) | MED | MED | 1,743 lines (≈2.9× cap); cut feature clusters per §3. Touches everything → careful. |
 | `session_storage.py` | HARNESS-COUPLED | MED | MED | Must break `config → save_session` top import first. |
 | `summarization_agent.py` | HARNESS-COUPLED | MED | MED | Needs a compaction-strategy seam before extraction. |
 | `mcp_/` | PLUGIN-CANDIDATE | **HIGH** | MED | Big & cohesive; seam lives inside `_builder` agent build path. |
