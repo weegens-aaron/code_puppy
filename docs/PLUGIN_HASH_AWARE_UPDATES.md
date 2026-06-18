@@ -13,6 +13,35 @@
 
 ---
 
+## 0. Architecture Grounding (REQUIRED FIRST STEP)
+
+This spike began by activating the **`code-puppy-agent`** architecture skill
+(`code_puppy/plugins/agent_skills/.../code-puppy-agent/SKILL.md`, shipped in
+commit `80e3538`). The skill is code_puppy's self-awareness reference for how
+plugins, callbacks, tools, the message bus, and config directories actually
+work. Designing a plugin-file update algorithm *without* that grounding would
+risk inventing a mechanism that fights the real loader. Below, each design
+decision is tied back to the specific architectural fact that constrains it.
+
+| Design decision (this doc) | Grounded in `code-puppy-agent` SKILL.md | Why it constrains the design |
+|----------------------------|------------------------------------------|------------------------------|
+| **Managed plugin root = `~/.code_puppy/plugins/`** (§1, §4) | §4.1 *Plugin discovery (three tiers)* + §10 *Configuration System* (documents `~/.code_puppy/plugins/` as the user-tier plugin dir) | Externalization moves files from the **builtin** tier (in-package, read-only) to the **user** tier (on-disk, editable). The sync target is a real, documented directory — not an invented path. |
+| **Sync must never clobber a project-tier override** (§3 rows 3/12, §6.4) | §4.1 *"Load order is builtin → user → project … Project plugins shadow user plugins on name collision."* | A user/project plugin can legitimately shadow what we ship. The "never touch untracked files" invariant (row 12) protects exactly the files the loader's precedence rules say are the user's to own. |
+| **Run the sync from the `startup` hook** (§9 follow-up #4) | §4.2 hook table — `startup` fires at *App boot*; §13 file map — `plugins/__init__.py` is the loader | The update has to happen *before* `_load_builtin_plugins()` imports anything, so the natural seam is a `startup`-phase callback, consistent with the plugin-first golden rule (don't edit `command_line/`/core). |
+| **Conflicts surfaced via `emit_warning`, not `print`** (§3.1, §5.2) | §11.1 *Message bus* — *"Plugins emit UI messages through the message bus rather than printing directly … work in both interactive and streaming contexts."* | The aggregated conflict notice must render in the TUI **and** non-TTY/CI runs. That requirement directly drove the non-blocking sidecar UX (§5) over interactive prompts. |
+| **`/plugins conflicts` reviewer as a plugin command** (§5.2, §9 #3) | §3.4 *Plugin tools* + §4.2 `custom_command` hook (*"return `None` from commands you don't own"*) | The reviewer is new functionality, so per the plugin-first rule it's a `custom_command` callback, not a core CLI edit. |
+| **Sync must fail gracefully, never crash boot** (§6.3 atomicity) | §12.1 golden rule #4 *"Fail gracefully — plugins must never crash the app"* | A half-written file or missing manifest self-heals via bootstrap (§6.1) instead of taking down startup. |
+| **One manifest, flat schema, 600-line discipline** (§4) | §12.3 *Zen of Code Puppy* — *"Flat is better than nested … Files should be readable in one sitting"* + §12.1 rule #3 (600-line cap) | Per-plugin nested manifests were rejected as YAGNI; the flat path-keyed form mirrors how the loader already treats each top-level dir as a plugin. |
+| **Design is loader-agnostic about *which* plugins move** | §13 file map points at `plugins/__init__.py`; this spike read `_load_builtin_plugins` directly | The skill told us where the loader lives so the algorithm could be grounded in the real discovery flow while leaving the "what moves" decision to `27g.1`/`27g.3`. |
+
+**Net:** the skill confirms the externalization target (user-tier dir), the
+right hook seam (`startup`), the correct conflict-notification channel (message
+bus), and the plugin-first constraints (no core edits, fail gracefully, flat).
+The algorithm in §2–§7 is built to fit that real architecture rather than a
+guessed one.
+
+---
+
 ## 1. Problem Statement
 
 Today builtin plugins ship *inside* the Python package at
@@ -413,6 +442,12 @@ them (DISCOVERY epic: propose, don't build):
 
 ## 10. Findings Summary (for `27g.4`)
 
+- **Architecture grounding (§0):** design was validated against the
+  `code-puppy-agent` skill — managed root = user-tier `~/.code_puppy/plugins/`
+  (skill §4.1/§10), sync runs from the `startup` hook before
+  `_load_builtin_plugins` (§4.2/§13), conflicts surface via the message bus
+  `emit_warning` not `print` (§11.1), and the `/plugins conflicts` reviewer is a
+  `custom_command` plugin (§3.4/§4.2) — i.e. **zero core edits**, plugin-first.
 - **Algorithm:** a three-hash (BASE/NEW/CUR) three-way model. BASE comes from an
   on-disk **installed manifest**, NEW from an in-package **shipped manifest**,
   CUR is computed live. A 12-row decision table (§3) covers
