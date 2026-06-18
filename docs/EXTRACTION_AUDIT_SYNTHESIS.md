@@ -41,7 +41,7 @@ opinions; grounding it makes the ranking *fit the real architecture*.
 | 4 | "Providers/tools/commands as plugins" is **PROVEN, not theoretical** — count the shipping plugins that already do it with zero core dispatch edits | §3.4 two-hook tool pattern; §5.3 `register_model_type`; §4.2 `custom_command` | 6 provider plugins + `puppy_kennel` (5 tools) + `pop_command`/`review_pr` are living proof; the audit is *which leaves are clean*, not *whether the seam exists* |
 | 5 | The blockers are **seam asymmetries, not modules** — additive-only tool advertisement, privileged native model dispatch, second-class plugin commands, no compaction/cleanup/identity seams | §4.2 hook table (the surface plugins bind to); §12.1 rule 1 "plugins over core" | The hook-surface GAPs (§4) are the synthesis's most important output for the ADR |
 | 6 | Every proposed extraction must **degrade gracefully** and emit via the **message bus**, never `print` | §11.1 message bus; §12.1 rules 4 & 5 | Inherited acceptance constraint on every candidate |
-| 7 | Internal **600-line splits are hygiene, not extraction** — keep them out of the extraction ranking, list them separately | §12.1 rule 3 "600-line hard cap" | `config.py` (1,743), `common.py` (1,599), `command_runner.py` (1,319), `rich_renderer.py` (1,190), `model_factory.py` (991), etc. are refactors-in-core (§6) |
+| 7 | Internal **600-line splits are hygiene, not extraction** — keep them out of the extraction ranking, list them separately | §12.1 rule 3 "600-line hard cap" | `config.py` (1,743), `common.py` (1,599), `command_runner.py` (1,319), `rich_renderer.py` (1,402), `model_factory.py` (991), etc. are refactors-in-core (§6) |
 
 > **Line-count methodology (Reality-judge guard):** every line number in this
 > synthesis is a *total physical line* count carried forward verbatim from the
@@ -51,6 +51,15 @@ opinions; grounding it makes the ranking *fit the real architecture*.
 > undercounts these CRLF files by exactly their blank-line count. The full proof
 > table lives in `tp4.2` §0.5 (memory keys `tp4.2-remediation-linecount-tool-artifact`,
 > `reality-judge-fuzzy-numbers`).
+>
+> **Correction (post-review):** `rich_renderer.py` was originally carried from
+> `tp4.4` as **1,190** — which was itself a `Measure-Object -Line` non-blank
+> undercount, the exact trap this note warns about. The total physical line count
+> is **1,402** (`sum(1 for _ in open(...))` / `(Get-Content).Count`), and it is
+> corrected to 1,402 in both places above. All other figures here (`common.py`
+> 1,599, `command_runner.py` 1,319, `model_factory.py` 991) re-verify exactly
+> against the total-line metric, confirming only the `tp4.4` value drifted from
+> the standard.
 
 ---
 
@@ -261,7 +270,7 @@ Grouped for the ADR to schedule. IDs are intentionally **unassigned** — the AD
 ### Epic H — Internal 600-line splits (hygiene; stays in core, NOT extraction)
 - `refactor: split config.py (1,743 ln)` — spine + `config_model.py` (clusters D/E/H/I), per `tp4.5` §3.
 - `refactor: split tools/common.py (1,599 ln)` and `command_runner.py (1,319 ln)`.
-- `refactor: split messaging/rich_renderer.py (1,190 ln)` into sub-renderers.
+- `refactor: split messaging/rich_renderer.py (1,402 ln)` into sub-renderers.
 - `refactor: split model_factory.py (991), claude_cache_client.py (843), gemini_model.py (840)`.
 - `chore: stop file_modifications.py importing file_permission_handler directly (GAP-X1)`.
 
