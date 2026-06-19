@@ -16,9 +16,17 @@ from code_puppy.plugins import (
     USER_PLUGINS_DIR,
     _load_builtin_plugins,
     _load_user_plugins,
+    _plugin_should_load,
     ensure_user_plugins_dir,
     get_user_plugins_dir,
     load_plugin_callbacks,
+)
+
+# Manifest mirroring the real shell_safety gate: load only at low/none safety.
+_SAFETY_MANIFEST_SRC = (
+    "from code_puppy.config import get_safety_permission_level\n"
+    "def should_load():\n"
+    "    return get_safety_permission_level() in ('none', 'low')\n"
 )
 
 
@@ -122,12 +130,13 @@ class TestLoadBuiltinPlugins:
             assert result == []
             mock_import.assert_not_called()
 
-    def test_skips_shell_safety_when_safety_level_high(self, tmp_path):
-        """Test shell_safety plugin is skipped when safety_permission_level is high."""
-        # Create shell_safety plugin directory
+    def test_skips_plugin_when_manifest_predicate_false_high(self, tmp_path):
+        """A plugin whose manifest should_load() is False is skipped (level high)."""
+        # Name is deliberately generic: the gate is the manifest, not the name.
         plugin_dir = tmp_path / "shell_safety"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
+        (plugin_dir / "manifest.py").write_text(_SAFETY_MANIFEST_SRC)
 
         with (
             patch("code_puppy.config.get_safety_permission_level", return_value="high"),
@@ -137,11 +146,12 @@ class TestLoadBuiltinPlugins:
             assert "shell_safety" not in result
             mock_import.assert_not_called()
 
-    def test_skips_shell_safety_when_safety_level_medium(self, tmp_path):
-        """Test shell_safety plugin is skipped when safety_permission_level is medium."""
+    def test_skips_plugin_when_manifest_predicate_false_medium(self, tmp_path):
+        """A plugin whose manifest should_load() is False is skipped (level medium)."""
         plugin_dir = tmp_path / "shell_safety"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
+        (plugin_dir / "manifest.py").write_text(_SAFETY_MANIFEST_SRC)
 
         with (
             patch(
@@ -153,11 +163,12 @@ class TestLoadBuiltinPlugins:
             assert "shell_safety" not in result
             mock_import.assert_not_called()
 
-    def test_loads_shell_safety_when_safety_level_low(self, tmp_path):
-        """Test shell_safety plugin is loaded when safety_permission_level is low."""
+    def test_loads_plugin_when_manifest_predicate_true_low(self, tmp_path):
+        """A plugin whose manifest should_load() is True is loaded (level low)."""
         plugin_dir = tmp_path / "shell_safety"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
+        (plugin_dir / "manifest.py").write_text(_SAFETY_MANIFEST_SRC)
 
         with (
             patch("code_puppy.config.get_safety_permission_level", return_value="low"),
@@ -169,11 +180,12 @@ class TestLoadBuiltinPlugins:
                 "code_puppy.plugins.shell_safety.register_callbacks"
             )
 
-    def test_loads_shell_safety_when_safety_level_none(self, tmp_path):
-        """Test shell_safety plugin is loaded when safety_permission_level is none."""
+    def test_loads_plugin_when_manifest_predicate_true_none(self, tmp_path):
+        """A plugin whose manifest should_load() is True is loaded (level none)."""
         plugin_dir = tmp_path / "shell_safety"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
+        (plugin_dir / "manifest.py").write_text(_SAFETY_MANIFEST_SRC)
 
         with (
             patch("code_puppy.config.get_safety_permission_level", return_value="none"),
@@ -181,6 +193,23 @@ class TestLoadBuiltinPlugins:
         ):
             result = _load_builtin_plugins(tmp_path)
             assert "shell_safety" in result
+
+    def test_loads_plugin_with_no_manifest_unconditionally(self, tmp_path):
+        """A plugin without a manifest loads regardless of safety level."""
+        plugin_dir = tmp_path / "shell_safety"
+        plugin_dir.mkdir()
+        (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
+        # No manifest.py -> the old name-based gate is gone, so it loads.
+
+        with (
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
+            patch("code_puppy.plugins.importlib.import_module") as mock_import,
+        ):
+            result = _load_builtin_plugins(tmp_path)
+            assert "shell_safety" in result
+            mock_import.assert_called_once_with(
+                "code_puppy.plugins.shell_safety.register_callbacks"
+            )
 
     def test_handles_import_error(self, tmp_path, caplog):
         """Test graceful handling of ImportError during plugin loading."""
@@ -732,3 +761,60 @@ class TestLoadPluginCallbacks:
                 assert "Plugins already loaded" in caplog.text
             finally:
                 plugins_module._PLUGINS_LOADED = original_loaded
+
+
+class TestPluginShouldLoad:
+    """Test the declarative load-predicate helper (_plugin_should_load)."""
+
+    def test_no_manifest_loads_by_default(self, tmp_path):
+        """A plugin without a manifest.py always loads."""
+        plugin_dir = tmp_path / "plain_plugin"
+        plugin_dir.mkdir()
+        assert _plugin_should_load(plugin_dir, "plain_plugin") is True
+
+    def test_manifest_without_should_load_loads_by_default(self, tmp_path):
+        """A manifest lacking should_load() does not block loading."""
+        plugin_dir = tmp_path / "meta_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.py").write_text("VERSION = '1.0'\n")
+        assert _plugin_should_load(plugin_dir, "meta_plugin") is True
+
+    def test_predicate_true_loads(self, tmp_path):
+        """should_load() returning True yields True."""
+        plugin_dir = tmp_path / "yes_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.py").write_text("def should_load():\n    return True\n")
+        assert _plugin_should_load(plugin_dir, "yes_plugin") is True
+
+    def test_predicate_false_skips(self, tmp_path):
+        """should_load() returning False yields False (the plugin is skipped)."""
+        plugin_dir = tmp_path / "no_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.py").write_text(
+            "def should_load():\n    return False\n"
+        )
+        assert _plugin_should_load(plugin_dir, "no_plugin") is False
+
+    def test_predicate_raises_fails_open(self, tmp_path, caplog):
+        """A predicate that raises fails open (loads) and warns."""
+        import logging
+
+        plugin_dir = tmp_path / "boom_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.py").write_text(
+            "def should_load():\n    raise RuntimeError('nope')\n"
+        )
+        with caplog.at_level(logging.WARNING):
+            assert _plugin_should_load(plugin_dir, "boom_plugin") is True
+            assert "should_load() for plugin 'boom_plugin' raised" in caplog.text
+
+    def test_manifest_import_error_fails_open(self, tmp_path, caplog):
+        """A manifest that fails to import fails open (loads) and warns."""
+        import logging
+
+        plugin_dir = tmp_path / "badimport_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.py").write_text("import nonexistent_module_xyz\n")
+        with caplog.at_level(logging.WARNING):
+            assert _plugin_should_load(plugin_dir, "badimport_plugin") is True
+            assert "failed to import" in caplog.text

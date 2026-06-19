@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 
+# Name of the optional per-plugin manifest module that may declare a load
+# predicate. A plugin opts out of unconditional loading by shipping a
+# ``manifest.py`` exporting ``should_load() -> bool`` (see _plugin_should_load).
+_PLUGIN_MANIFEST_MODULE = "manifest"
+
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
 
@@ -20,14 +25,73 @@ _PLUGINS_LOADED = False
 _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "project": []}
 
 
+def _plugin_should_load(plugin_dir: Path, plugin_name: str) -> bool:
+    """Consult a plugin's declarative load predicate, if it ships one.
+
+    A plugin opts out of *unconditional* loading by shipping a ``manifest.py``
+    that exports ``should_load() -> bool``. The loader imports that manifest in
+    isolation (it must only *declare* the predicate, never register callbacks)
+    and skips the plugin when the predicate returns ``False``.
+
+    This replaces the old hardcoded ``if plugin_name == "shell_safety"`` branch:
+    the conditional-load gate now travels *with* the plugin, so it works
+    identically across the builtin, user, and project tiers and survives a
+    plugin being relocated (externalized) out of the wheel.
+
+    Contract:
+        * No ``manifest.py`` -> load (default ``True``).
+        * ``manifest.py`` without ``should_load`` -> load (default ``True``).
+        * Predicate raises -> load (fail-open) and log a warning; a broken
+          gate should never silently suppress a plugin.
+    """
+    manifest_file = plugin_dir / f"{_PLUGIN_MANIFEST_MODULE}.py"
+    if not manifest_file.exists():
+        return True
+
+    try:
+        # Load the manifest under a throwaway namespace so it never collides
+        # with the plugin's real modules and is not retained in sys.modules.
+        spec = importlib.util.spec_from_file_location(
+            f"_code_puppy_plugin_manifests.{plugin_name}", manifest_file
+        )
+        if spec is None or spec.loader is None:
+            return True
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as e:
+        logger.warning(
+            "Load predicate for plugin '%s' failed to import (%s); loading anyway",
+            plugin_name,
+            e,
+        )
+        return True
+
+    predicate = getattr(module, "should_load", None)
+    if predicate is None:
+        return True
+
+    try:
+        if not predicate():
+            logger.debug(
+                "Skipping plugin '%s' - its should_load() predicate returned False",
+                plugin_name,
+            )
+            return False
+        return True
+    except Exception as e:
+        logger.warning(
+            "should_load() for plugin '%s' raised (%s); loading anyway",
+            plugin_name,
+            e,
+        )
+        return True
+
+
 def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
     """Load built-in plugins from the package plugins directory.
 
     Returns list of successfully loaded plugin names.
     """
-    # Import safety permission check for shell_safety plugin
-    from code_puppy.config import get_safety_permission_level
-
     loaded = []
 
     for item in plugins_dir.iterdir():
@@ -36,14 +100,9 @@ def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
             callbacks_file = item / "register_callbacks.py"
 
             if callbacks_file.exists():
-                # Skip shell_safety plugin unless safety_permission_level is "low" or "none"
-                if plugin_name == "shell_safety":
-                    safety_level = get_safety_permission_level()
-                    if safety_level not in ("none", "low"):
-                        logger.debug(
-                            f"Skipping shell_safety plugin - safety_permission_level is '{safety_level}' (needs 'low' or 'none')"
-                        )
-                        continue
+                # Honor the plugin's declarative load predicate (if any).
+                if not _plugin_should_load(item, plugin_name):
+                    continue
 
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
@@ -134,6 +193,10 @@ def _load_user_plugins(
                     "plugin with the same name is already loaded or scheduled",
                     plugin_name,
                 )
+                continue
+
+            # Honor the plugin's declarative load predicate (if any).
+            if not _plugin_should_load(item, plugin_name):
                 continue
 
             callbacks_file = item / "register_callbacks.py"
@@ -310,6 +373,10 @@ def _load_project_plugins(
                 logger.warning(
                     f"Project plugin '{plugin_name}' shadows builtin plugin of the same name"
                 )
+
+            # Honor the plugin's declarative load predicate (if any).
+            if not _plugin_should_load(item, plugin_name):
+                continue
 
             callbacks_file = item / "register_callbacks.py"
 
