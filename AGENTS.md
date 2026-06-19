@@ -26,6 +26,35 @@ register_callback("startup", _on_startup)
 
 That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 
+### Internal imports MUST be relative
+
+When a plugin imports its own sibling modules, **always use a relative import**:
+
+```python
+# ✅ DO THIS — relocatable
+from .detector import detect_force_push
+from .config import get_skill_directories
+from . import state
+
+# ❌ NOT THIS — pins the plugin to the builtin location
+from code_puppy.plugins.force_push_guard.detector import detect_force_push
+```
+
+**Why:** a builtin loads as `code_puppy.plugins.<name>`, but the same plugin
+dropped into the user/project tiers loads as `user_plugins.<name>` /
+`project_plugins.<name>`. An absolute self-import (`code_puppy.plugins.<name>.…`)
+hardcodes the builtin namespace, so the plugin breaks the moment it's relocated
+(ejected) to another tier. A relative import resolves against whatever parent
+package the loader built, so the **exact same files relocate across all three
+tiers with zero rewrites** (closes liability L1).
+
+This applies to *internal* imports only. Imports of **core** (`from
+code_puppy.messaging import …`) and of a **different** plugin
+(`from code_puppy.plugins.other_plugin import …`) stay absolute — relocating
+cross-plugin dependencies is a separate concern. A regression test
+(`tests/plugins/test_builtin_import_convention.py`) AST-scans every builtin and
+fails the build if a self-referential absolute import sneaks back in.
+
 ### Project Plugins
 
 Project plugins live at `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py`.

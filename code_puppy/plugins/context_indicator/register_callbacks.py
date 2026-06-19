@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from code_puppy.callbacks import register_callback
-from code_puppy.plugins.context_indicator.usage import (
+from .usage import (
     ContextUsage,
     get_current_usage,
 )

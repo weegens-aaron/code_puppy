@@ -8,7 +8,7 @@ from typing import Any, Iterable, List, Optional
 
 from code_puppy.callbacks import get_callbacks, on_register_skills
 from code_puppy.config import CACHE_DIR
-from code_puppy.plugins.agent_skills.config import get_skill_directories
+from .config import get_skill_directories
 
 logger = logging.getLogger(__name__)
 

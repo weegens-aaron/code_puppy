@@ -149,7 +149,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     # Bare /plugins -> interactive TUI
     if len(tokens) <= 1:
         try:
-            from code_puppy.plugins.plugin_list.plugins_menu import run_plugins_menu
+            from .plugins_menu import run_plugins_menu
 
             run_plugins_menu()
         except Exception as exc:

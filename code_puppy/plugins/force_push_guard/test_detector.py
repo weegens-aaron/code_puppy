@@ -1,6 +1,6 @@
 """Tests for the force push guard detector."""
 
-from code_puppy.plugins.force_push_guard.detector import detect_force_push
+from .detector import detect_force_push
 
 
 class TestDetectForcePush:

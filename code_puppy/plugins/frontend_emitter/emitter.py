@@ -42,7 +42,7 @@ from code_puppy.config import (
     get_frontend_emitter_max_recent_events,
     get_frontend_emitter_queue_size,
 )
-from code_puppy.plugins.frontend_emitter.session_context import (
+from .session_context import (
     current_emitter_session_id,
 )
 

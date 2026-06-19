@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.plugins.chatgpt_oauth import config, utils
+from . import config, utils
 
 
 def test_config_paths():

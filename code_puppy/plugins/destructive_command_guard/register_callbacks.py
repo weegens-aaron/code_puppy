@@ -15,7 +15,7 @@ from rich.text import Text
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_disable_dangerous_command_guard
 from code_puppy.messaging import emit_info, emit_warning
-from code_puppy.plugins.destructive_command_guard.detector import (
+from .detector import (
     detect_destructive_command,
 )
 

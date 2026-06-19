@@ -24,7 +24,7 @@ import time
 from typing import Any, Dict, Optional
 
 from code_puppy.callbacks import register_callback
-from code_puppy.plugins.frontend_emitter.emitter import emit_event
+from .emitter import emit_event
 
 logger = logging.getLogger(__name__)
 

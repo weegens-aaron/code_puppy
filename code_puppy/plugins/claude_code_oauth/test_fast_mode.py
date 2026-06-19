@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from code_puppy.plugins.claude_code_oauth.fast_mode import (
+from .fast_mode import (
     FAST_MODE_BETA,
     FAST_SETTING_KEY,
     ensure_fast_beta_header,

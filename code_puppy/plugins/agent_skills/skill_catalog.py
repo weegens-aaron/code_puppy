@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from code_puppy.plugins.agent_skills.remote_catalog import fetch_remote_catalog
+from .remote_catalog import fetch_remote_catalog
 
 logger = logging.getLogger(__name__)
 
