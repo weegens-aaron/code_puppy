@@ -38,12 +38,25 @@ syntheses.
 | 8 | Protect the harness floor as an **invariant** (BOOT / LOAD-PLUGINS / NO-OP-TURN) | §1 layered architecture; §2.1 BaseAgent conductor; §5.1 ModelFactory | §5.2 codifies the invariants any impl bead must keep green |
 
 > **Two claims re-verified against source for this ADR (Reality-judge guard):**
-> 1. **The shadow gap is real and load-bearing.** `code_puppy/plugins/__init__.py`
->    only `logger.warning`s when a project plugin shadows a builtin — *both copies
->    still load* (verified at the `"... shadows builtin plugin of the same name"`
->    warning; user-vs-project collisions are handled separately by skipping the
->    user copy). So a deterministic precedence mechanism is a **net-new build**,
->    not a config flip. This is D2's single hard dependency.
+> 1. **The shadow gap is real and load-bearing — and there is *no suppression*
+>    today.** When a project plugin shares a name with a builtin,
+>    `code_puppy/plugins/__init__.py` only emits a `logger.warning` (the
+>    `"... shadows builtin plugin of the same name"` line) — nothing is skipped.
+>    *Both* `register_callbacks.py` modules import **and execute**: the builtin as
+>    `code_puppy.plugins.<name>.register_callbacks` (via
+>    `importlib.import_module`) and the project copy as
+>    `project_plugins.<name>.register_callbacks` (via `spec_from_file_location`).
+>    Because they live in **different module namespaces**, each registers its own
+>    *distinct* callback function objects, and `register_callback`'s dedup guard
+>    (`if func in _callbacks[phase]`, `callbacks.py`) is **by function-object
+>    identity** — it only collapses the *same* object re-registered, never two
+>    same-named functions from two tiers. Net result: **both copies' callbacks
+>    register *and both fire*** — no precedence, no override. (User-vs-project
+>    collisions are the exception: the user copy is skipped outright via
+>    `skip_names`.) So a deterministic precedence mechanism that makes an
+>    ejected/project copy actually *suppress* the same-named builtin is a
+>    **net-new build**, not a config flip. This is D2's single hard dependency,
+>    and it is precedence work in the *callback registry*, not merely load-order.
 > 2. **There are 39 builtin plugin directories** under `code_puppy/plugins/`
 >    (verified by counting non-dunder subdirs). The syntheses' "~30/40" are
 >    approximations; the extraction program adds to this count, it does not
@@ -133,7 +146,9 @@ slice.**
   never touched. (This is `27g.2`'s invariant set, scoped to the overlaid slice.)
 - **The one non-optional new build:** a **deterministic shadow/precedence
   mechanism** so an ejected copy *suppresses* the same-named builtin. Today both
-  load (verified, §0) — this must be built before eject is meaningful.
+  copies load, register, **and fire** — there is no suppression at all (verified,
+  §0); this precedence work in the callback registry must be built before eject
+  is meaningful.
 - **Migration is additive & reversible** in four phases: loader parity & import
   normalization → shadow mechanism → scoped startup hash-sync → opt-in eject
   surface. Fresh install does nothing by default; upgrades only hash the ejected
@@ -209,7 +224,7 @@ Grounded in the two syntheses and the harness-boundary criteria:
 | **Overlay-only (no eject)** | Subsumed | A pure overlay is the *materialization mechanism* the chosen hybrid already uses sparsely; on its own it lacks the opt-in "I own this whole plugin" affordance users want. The hybrid is overlay **plus** opt-in eject. |
 | **CAS — content-addressed store** (multi-version, symlink/hardlink materialization) | **Rejected (YAGNI)** | Solves version retention/rollback, a problem this epic does not have, and its symlink/hardlink materialization lands on exactly the Windows platform `27g.2` flagged as the danger zone. |
 | **`sys.meta_path` import-hook** (custom finder routing imports to user copies) | **Rejected (blast radius)** | The only option that *fully* solves L1, but it does so by installing a custom finder on `sys.meta_path` alongside pytest/coverage/pydantic-ai — a direct violation of SKILL §12.1 rule 4 and §12.3. Not worth a finder that can break *every* import. |
-| **Manifest-only / "do nothing but document"** | Rejected | A manifest without a precedence mechanism leaves the shadow gap (§0) unsolved — both copies still load. The manifest is a *component* of the chosen engine, not a substitute for the shadow build. |
+| **Manifest-only / "do nothing but document"** | Rejected | A manifest without a precedence mechanism leaves the shadow gap (§0) unsolved — both copies load, register, and fire. The manifest is a *component* of the chosen engine, not a substitute for the shadow build. |
 
 **Chosen:** the **lazy hybrid (eject-over-in-package-canonical + sparse overlay,
 scoped BASE/NEW/CUR engine)** — the only approach that neutralizes L2/L3/L4 for
@@ -307,8 +322,8 @@ automated guard instead of a manual checklist.
   `models_dev_api.json` (GAP-D1) is parked, not scheduled.
 - **Documentation debt:** SKILL §4.1 and `CONTRIBUTING.md` currently claim the
   three tiers behave identically and that "project wins on collision." E1/E2 make
-  that *true* (it isn't, for builtin clashes, today — §0). Docs update ships with
-  E2.
+  that *true* (it isn't, for builtin clashes, today — both copies load and fire,
+  §0). Docs update ships with E2.
 - **No regression budget for the harness:** the boundary is operational, not
   cosmetic — a bead that breaks a liveness property is incorrect by definition.
 
