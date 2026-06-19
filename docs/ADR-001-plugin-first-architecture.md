@@ -71,9 +71,10 @@ syntheses.
 
 ## 1. Context
 
-Code Puppy is **plugin-first by philosophy** (SKILL §12.3, `CONTRIBUTING.md`):
-nearly all new functionality should be a plugin under `code_puppy/plugins/` that
-hooks into core via `callbacks.py`. In practice, core has accreted a lot of
+Code Puppy is **plugin-first by philosophy** (SKILL §12.3; `AGENTS.md` golden
+rule — *"nearly all new functionality should be a plugin under
+`code_puppy/plugins/` that hooks into core via `code_puppy/callbacks.py`"*).
+In practice, core has accreted a lot of
 *feature* code that already behaves like a plugin but still lives in the engine,
 and the 39 shipped builtin plugins are **read-only** — a user who wants to tweak
 one has no safe, update-surviving way to do it.
@@ -320,10 +321,14 @@ automated guard instead of a manual checklist.
 - **Smaller install surface** as Tier 0 lands (esp. `hook_engine/`; later
   `browser/` + Playwright off the default install). The bundled 535 KB
   `models_dev_api.json` (GAP-D1) is parked, not scheduled.
-- **Documentation debt:** SKILL §4.1 and `CONTRIBUTING.md` currently claim the
-  three tiers behave identically and that "project wins on collision." E1/E2 make
-  that *true* (it isn't, for builtin clashes, today — both copies load and fire,
-  §0). Docs update ships with E2.
+- **Documentation debt:** SKILL §4.1 and `AGENTS.md` (*"How Plugins Work"* —
+  *"All three tiers use the same pattern"* + *"Project wins on name collision"*)
+  currently claim the three tiers behave identically and that "project wins on
+  collision." That is true for **user-vs-project** clashes (the user copy is
+  skipped via `skip_names`) but **not** for **builtin** clashes today — both
+  copies load, register, and fire (§0). E1/E2 close that gap; the docs update
+  (correcting the builtin-collision wording in `AGENTS.md` + SKILL §4.1) ships
+  with E2.
 - **No regression budget for the harness:** the boundary is operational, not
   cosmetic — a bead that breaks a liveness property is incorrect by definition.
 
