@@ -46,11 +46,16 @@ def _build_output() -> str:
     loaded = get_loaded_plugins()
     disabled = get_disabled_plugins()
 
-    builtin_path = str(Path(__file__).parent.parent) + "/"
+    # Display paths with forward slashes on every OS. ``Path.as_posix()``
+    # keeps the builtin/project rows readable and consistent (the trailing
+    # "/" we append assumes POSIX-style separators). Using ``str()`` here
+    # would emit Windows backslashes and break that contract -- see
+    # puppy-787.
+    builtin_path = Path(__file__).parent.parent.as_posix() + "/"
     user_path = "~/.code_puppy/plugins/"
     project_dir = get_project_plugins_directory()
     project_path = (
-        str(project_dir) + "/" if project_dir else "<CWD>/.code_puppy/plugins/"
+        project_dir.as_posix() + "/" if project_dir else "<CWD>/.code_puppy/plugins/"
     )
 
     lines = [
