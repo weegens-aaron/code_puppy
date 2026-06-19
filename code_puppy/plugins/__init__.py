@@ -203,8 +203,11 @@ def _load_user_plugins(
 
             if callbacks_file.exists():
                 try:
-                    # Load the plugin module directly from the file
-                    module_name = f"{plugin_name}.register_callbacks"
+                    # Register parent package so relative imports resolve
+                    # (shared with the project tier — tiers load identically).
+                    _ensure_plugin_package(_USER_PLUGINS_NS, item, plugin_name)
+
+                    module_name = f"{_USER_PLUGINS_NS}.{plugin_name}.register_callbacks"
                     spec = importlib.util.spec_from_file_location(
                         module_name, callbacks_file
                     )
@@ -238,21 +241,15 @@ def _load_user_plugins(
                 init_file = item / "__init__.py"
                 if init_file.exists():
                     try:
-                        module_name = plugin_name
-                        spec = importlib.util.spec_from_file_location(
-                            module_name, init_file
-                        )
-                        if spec is None or spec.loader is None:
-                            continue
-
-                        module = importlib.util.module_from_spec(spec)
-                        sys.modules[module_name] = module
                         set_loading_context(plugin_name)
                         try:
-                            spec.loader.exec_module(module)
+                            loaded_ok = _ensure_plugin_package(
+                                _USER_PLUGINS_NS, item, plugin_name
+                            )
                         finally:
                             clear_loading_context()
-                        loaded.append(plugin_name)
+                        if loaded_ok:
+                            loaded.append(plugin_name)
 
                     except Exception as e:
                         logger.error(
@@ -263,37 +260,49 @@ def _load_user_plugins(
     return loaded
 
 
+# Synthetic top-level namespace packages, one per non-builtin tier.  They give
+# user/project plugins a real parent package so relative imports resolve.  The
+# builtin tier needs no synthetic namespace — it already lives under the real
+# ``code_puppy.plugins`` package.
+_USER_PLUGINS_NS = "user_plugins"
 _PROJECT_PLUGINS_NS = "project_plugins"
 
 
-def _ensure_project_ns() -> None:
-    """Create the synthetic ``project_plugins`` namespace package.
+def _ensure_plugin_package(namespace: str, plugin_dir: Path, plugin_name: str) -> bool:
+    """Build the synthetic parent package(s) for a tier plugin.
 
-    Needed once so that ``project_plugins.<name>.register_callbacks`` can
-    resolve relative imports (``from . import state``, etc.).  Without a
-    parent package in ``sys.modules`` Python raises ``ModuleNotFoundError``
-    when it encounters ``from .``.
+    Ensures two things exist in ``sys.modules`` so that a plugin's
+    ``register_callbacks.py`` can use relative imports (``from . import x``):
+
+    1. The top-level tier namespace package (*namespace*, e.g.
+       ``"user_plugins"`` or ``"project_plugins"``) — a synthetic namespace
+       package with an empty ``__path__``.
+    2. The plugin's own parent package (``namespace.plugin_name``) whose
+       ``__path__`` points at *plugin_dir* so sibling modules resolve.
+
+    If the plugin ships an ``__init__.py`` it is executed so package-level
+    attributes (``__version__``, etc.) are available; otherwise a bare
+    namespace module is created — enough for the import machinery to locate
+    sibling modules.
+
+    This single helper is shared by BOTH the user and project tiers, honoring
+    the AGENTS.md promise that all tiers load identically.  It closes L1: user
+    plugins previously had *no* parent package, so ``from . import x`` raised
+    ``ModuleNotFoundError``.
+
+    Returns ``True`` if a real ``__init__.py`` was executed (or the package was
+    already present), ``False`` if a bare namespace fallback was used (no init,
+    or spec/loader was ``None``).
     """
-    if _PROJECT_PLUGINS_NS not in sys.modules:
-        ns_pkg = types.ModuleType(_PROJECT_PLUGINS_NS)
+    # 1. Top-level tier namespace package (created once per tier).
+    if namespace not in sys.modules:
+        ns_pkg = types.ModuleType(namespace)
         ns_pkg.__path__ = []  # namespace package
-        ns_pkg.__package__ = _PROJECT_PLUGINS_NS
-        sys.modules[_PROJECT_PLUGINS_NS] = ns_pkg
+        ns_pkg.__package__ = namespace
+        sys.modules[namespace] = ns_pkg
 
-
-def _ensure_plugin_package(plugin_dir: Path, plugin_name: str) -> bool:
-    """Register a synthetic package for *plugin_name* under the project namespace.
-
-    If the plugin directory contains an ``__init__.py`` it is executed so
-    that any package-level attributes (``__version__``, etc.) are available.
-    Otherwise a bare namespace module is created with ``__path__`` pointing
-    at the plugin directory — enough for the import machinery to locate
-    sibling modules when ``register_callbacks.py`` does relative imports.
-
-    Returns ``True`` if a real ``__init__.py`` was executed, ``False`` if a
-    bare namespace fallback was used (no init, or spec/loader was ``None``).
-    """
-    pkg_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}"
+    # 2. The plugin's own parent package.
+    pkg_name = f"{namespace}.{plugin_name}"
     if pkg_name in sys.modules:
         return True
 
@@ -356,9 +365,6 @@ def _load_project_plugins(
     if project_plugins_str not in sys.path:
         sys.path.insert(0, project_plugins_str)
 
-    # Create the top-level namespace package once
-    _ensure_project_ns()
-
     for item in project_plugins_dir.iterdir():
         if (
             item.is_dir()
@@ -383,7 +389,7 @@ def _load_project_plugins(
             if callbacks_file.exists():
                 try:
                     # Register parent package so relative imports resolve
-                    _ensure_plugin_package(item, plugin_name)
+                    _ensure_plugin_package(_PROJECT_PLUGINS_NS, item, plugin_name)
 
                     module_name = (
                         f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
@@ -422,7 +428,9 @@ def _load_project_plugins(
                     try:
                         set_loading_context(plugin_name)
                         try:
-                            loaded_ok = _ensure_plugin_package(item, plugin_name)
+                            loaded_ok = _ensure_plugin_package(
+                                _PROJECT_PLUGINS_NS, item, plugin_name
+                            )
                         finally:
                             clear_loading_context()
                         if loaded_ok:
