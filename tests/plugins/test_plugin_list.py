@@ -163,6 +163,39 @@ class TestHandleCustomCommand:
             assert "Loaded Plugins" in mock_emit.call_args[0][0]
 
 
+class TestEjectSubcommands:
+    def test_list_ejectable_routes_and_emits(self):
+        with patch("code_puppy.messaging.emit_info") as mock_emit:
+            result = _handle_custom_command("/plugins list-ejectable", "plugins")
+            assert result is True
+            mock_emit.assert_called_once()
+            # Runs against the real builtin tier -> header is always present.
+            assert "Ejectable builtin plugins" in mock_emit.call_args[0][0]
+
+    def test_show_requires_a_name(self):
+        with patch("code_puppy.messaging.emit_error") as mock_err:
+            result = _handle_custom_command("/plugins show", "plugins")
+            assert result is True
+            mock_err.assert_called_once()
+            assert "Usage" in mock_err.call_args[0][0]
+
+    def test_show_routes_and_emits(self):
+        with patch("code_puppy.messaging.emit_info") as mock_emit:
+            result = _handle_custom_command("/plugins show plugin_list", "plugins")
+            assert result is True
+            mock_emit.assert_called_once()
+            assert "Plugin: plugin_list" in mock_emit.call_args[0][0]
+
+    def test_unknown_subcommand_mentions_new_commands(self):
+        with patch("code_puppy.messaging.emit_error") as mock_err:
+            result = _handle_custom_command("/plugins bogus", "plugins")
+            assert result is True
+            mock_err.assert_called_once()
+            msg = mock_err.call_args[0][0]
+            assert "list-ejectable" in msg
+            assert "show" in msg
+
+
 class TestCustomHelp:
     def test_returns_plugins_entry(self):
         entries = _custom_help()

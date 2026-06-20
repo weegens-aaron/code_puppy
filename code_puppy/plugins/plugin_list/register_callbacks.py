@@ -4,6 +4,8 @@ Usage::
 
     /plugins                   -- open interactive TUI
     /plugins list              -- print loaded plugins with status
+    /plugins list-ejectable    -- list builtins eligible for eject
+    /plugins show <name>       -- report a plugin's tier, eject state, edits
     /plugins disable <name>    -- disable a plugin (callbacks are skipped)
     /plugins enable <name>     -- re-enable a disabled plugin
 
@@ -115,6 +117,26 @@ def _handle_disable(plugin_name: str) -> bool:
     return True
 
 
+def _handle_list_ejectable() -> bool:
+    """Show which builtin plugins can be ejected (and which already were)."""
+    from code_puppy.messaging import emit_info
+
+    from .ejectable import format_list_ejectable, list_ejectable
+
+    emit_info(format_list_ejectable(list_ejectable()))
+    return True
+
+
+def _handle_show(plugin_name: str) -> bool:
+    """Report a single plugin's tier, ejected state, and modification status."""
+    from code_puppy.messaging import emit_info
+
+    from .ejectable import describe, format_show
+
+    emit_info(format_show(describe(plugin_name)))
+    return True
+
+
 def _handle_enable(plugin_name: str) -> bool:
     """Enable a previously disabled plugin."""
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -140,7 +162,9 @@ def _handle_enable(plugin_name: str) -> bool:
 
 
 def _custom_help() -> list[tuple[str, str]]:
-    return [("plugins", "List, enable, or disable plugins")]
+    return [
+        ("plugins", "List, show, enable, disable, or list-ejectable plugins"),
+    ]
 
 
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
@@ -168,6 +192,15 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         emit_info(_build_output())
         return True
 
+    if subcommand == "list-ejectable":
+        return _handle_list_ejectable()
+
+    if subcommand == "show":
+        if len(tokens) < 3:
+            emit_error("Usage: /plugins show <plugin-name>")
+            return True
+        return _handle_show(tokens[2])
+
     if subcommand == "disable":
         if len(tokens) < 3:
             emit_error("Usage: /plugins disable <plugin-name>")
@@ -182,7 +215,8 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
     emit_error(
         f"Unknown subcommand: '{subcommand}'. "
-        "Usage: /plugins [list | enable <name> | disable <name>]"
+        "Usage: /plugins [list | list-ejectable | show <name> | "
+        "enable <name> | disable <name>]"
     )
     return True
 
