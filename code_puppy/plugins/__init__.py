@@ -633,6 +633,17 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
         "project": project_loaded,
     }
 
+    # puppy-4sy: make every ejected builtin the LIVE copy for absolute imports
+    # too. The tier loaders above already won the relative-import case, but an
+    # absolute ``import code_puppy.plugins.<name>.x`` (issued by core or a
+    # sibling plugin) still resolved to the pristine wheel copy -- so edits to an
+    # ejected plugin that core imports absolutely were silently ignored. Aliasing
+    # the canonical namespace onto the already-loaded ejected modules fixes that
+    # without re-executing anything (no double callback registration).
+    from code_puppy.plugins.ejected_namespace import alias_ejected_builtins
+
+    alias_ejected_builtins(result, _scan_plugin_names(plugins_dir))
+
     _PLUGINS_LOADED = True
     _loaded_plugin_names.update(result)
     logger.debug(

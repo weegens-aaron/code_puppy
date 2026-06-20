@@ -28,7 +28,8 @@ an explicit opt-in to eject the whole cluster (``cluster=True`` /
 when you opt into the cluster) does the eject proceed -- so the ejected slice is
 always a self-contained, editable unit and we never externalize a *subset* of a
 cluster (closes liability L5). A standalone plugin (no cross-plugin imports)
-ejects normally, no opt-in required.</new_str>
+ejects normally, no opt-in required.
+
 Everything here is pure data-gathering + deterministic filesystem mutation +
 pure string formatting -- no message bus -- so it is unit-testable in isolation.
 ``register_callbacks.py`` only wires the result to ``emit_*``. Tier roots are
