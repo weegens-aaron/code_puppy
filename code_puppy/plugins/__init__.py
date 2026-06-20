@@ -134,7 +134,8 @@ def _load_builtin_plugins(
                     loaded.append(plugin_name)
                 except ImportError as e:
                     logger.warning(
-                        f"Failed to import callbacks from built-in plugin {plugin_name}: {e}"
+                        f"Failed to import callbacks from built-in "
+                        f"plugin {plugin_name}: {e}"
                     )
                 except Exception as e:
                     logger.error(
@@ -236,7 +237,8 @@ def _load_user_plugins(
                     )
                     if spec is None or spec.loader is None:
                         logger.warning(
-                            f"Could not create module spec for user plugin: {plugin_name}"
+                            f"Could not create module spec for "
+                            f"user plugin: {plugin_name}"
                         )
                         continue
 
@@ -252,7 +254,8 @@ def _load_user_plugins(
 
                 except ImportError as e:
                     logger.warning(
-                        f"Failed to import callbacks from user plugin {plugin_name}: {e}"
+                        f"Failed to import callbacks from "
+                        f"user plugin {plugin_name}: {e}"
                     )
                 except Exception as e:
                     logger.error(
@@ -425,7 +428,8 @@ def _load_project_plugins(
                     )
                     if spec is None or spec.loader is None:
                         logger.warning(
-                            f"Could not create module spec for project plugin: {plugin_name}"
+                            f"Could not create module spec for "
+                            f"project plugin: {plugin_name}"
                         )
                         continue
 
@@ -440,7 +444,8 @@ def _load_project_plugins(
 
                 except ImportError as e:
                     logger.warning(
-                        f"Failed to import callbacks from project plugin {plugin_name}: {e}"
+                        f"Failed to import callbacks from "
+                        f"project plugin {plugin_name}: {e}"
                     )
                 except Exception as e:
                     logger.error(
@@ -463,12 +468,14 @@ def _load_project_plugins(
                             loaded.append(plugin_name)
                         else:
                             logger.warning(
-                                f"Could not load __init__.py for project plugin: {plugin_name}"
+                                f"Could not load __init__.py for "
+                                f"project plugin: {plugin_name}"
                             )
 
                     except Exception as e:
                         logger.error(
-                            f"Unexpected error loading project plugin {plugin_name}: {e}",
+                            f"Unexpected error loading project "
+                            f"plugin {plugin_name}: {e}",
                             exc_info=True,
                         )
 
