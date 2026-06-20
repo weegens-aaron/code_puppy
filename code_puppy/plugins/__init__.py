@@ -87,12 +87,24 @@ def _plugin_should_load(plugin_dir: Path, plugin_name: str) -> bool:
         return True
 
 
-def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
+def _load_builtin_plugins(
+    plugins_dir: Path,
+    skip_names: set[str] | None = None,
+) -> list[str]:
     """Load built-in plugins from the package plugins directory.
+
+    *skip_names*, when provided, is the set of plugin names that an *owned*
+    (user- or project-tier) copy has already claimed.  A builtin whose name
+    appears in this set is FULLY SUPPRESSED — it is never imported, so it
+    cannot register callbacks.  This implements deterministic precedence
+    (project > user > builtin): an ejected/owned copy wins over the builtin
+    of the same name, and only one copy ever fires.  Previously both copies
+    loaded and fired (warn-only collision handling); see puppy-viu.2.1.
 
     Returns list of successfully loaded plugin names.
     """
     loaded = []
+    skip_names = set(skip_names or ())
 
     for item in plugins_dir.iterdir():
         if item.is_dir() and not item.name.startswith("_"):
@@ -100,6 +112,17 @@ def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
             callbacks_file = item / "register_callbacks.py"
 
             if callbacks_file.exists():
+                # An owned (user/project) copy of this name suppresses the
+                # builtin entirely — do not import it (deterministic
+                # precedence; the owned copy is the single registrant).
+                if plugin_name in skip_names:
+                    logger.info(
+                        "Suppressing builtin plugin '%s' because an owned "
+                        "(user/project) copy of the same name takes precedence",
+                        plugin_name,
+                    )
+                    continue
+
                 # Honor the plugin's declarative load predicate (if any).
                 if not _plugin_should_load(item, plugin_name):
                     continue
@@ -373,11 +396,14 @@ def _load_project_plugins(
         ):
             plugin_name = item.name
 
-            # Warn if a project plugin shadows a builtin (user collisions
-            # are handled earlier by skipping the user plugin entirely).
+            # Warn if a project plugin shadows a builtin. The builtin is
+            # already fully suppressed upstream (it was passed into
+            # _load_builtin_plugins' skip_names), so only this owned copy
+            # registers — the warning is purely informational.
             if plugin_name in builtin_names:
                 logger.warning(
-                    f"Project plugin '{plugin_name}' shadows builtin plugin of the same name"
+                    f"Project plugin '{plugin_name}' shadows builtin plugin "
+                    "of the same name (builtin suppressed)"
                 )
 
             # Honor the plugin's declarative load predicate (if any).
@@ -489,18 +515,30 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     plugins_dir = Path(__file__).parent
 
-    # Pre-scan project plugin names so we can skip user plugins that the
-    # project tier will supersede (project wins, matching agents dedup).
+    # Deterministic precedence: project > user > builtin.
+    #
+    # Pre-scan the *owned* tiers (user + project) before loading anything so
+    # that an owned copy FULLY SUPPRESSES the same-named builtin — the builtin
+    # never imports and never fires. Project still wins over user (the user
+    # tier skips any name the project tier will supersede), matching the
+    # agents dedup strategy. See puppy-viu.2.1.
     project_plugins_dir = get_project_plugins_directory()
     project_plugin_names = (
         _scan_plugin_names(project_plugins_dir)
         if project_plugins_dir is not None
         else set()
     )
+    user_plugin_names = _scan_plugin_names(USER_PLUGINS_DIR)
 
-    builtin_loaded = _load_builtin_plugins(plugins_dir)
-    user_skip_names = set(builtin_loaded) | project_plugin_names
-    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip_names)
+    # Any owned (user or project) copy claims the name away from the builtin,
+    # which is then suppressed (and logged) inside _load_builtin_plugins.
+    owned_names = user_plugin_names | project_plugin_names
+
+    builtin_loaded = _load_builtin_plugins(plugins_dir, skip_names=owned_names)
+    # User skips only names the project tier will supersede (project wins).
+    # It no longer skips builtin names: an owned copy now beats the builtin,
+    # which has already been suppressed above.
+    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=project_plugin_names)
 
     # Load project plugins last (highest precedence)
     project_loaded = []
