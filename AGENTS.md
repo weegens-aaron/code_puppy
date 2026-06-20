@@ -75,6 +75,27 @@ and skills (`<CWD>/.code_puppy/skills/`).
 - **Module namespace isolation.** Project plugins use `project_plugins.<name>.register_callbacks`
   in `sys.modules`, so they never collide with user plugins at the import level.
 
+### Tier-collision policy (single source of truth)
+
+When the **same plugin name** appears in more than one tier, exactly ONE copy
+loads and registers callbacks — the rest are **fully suppressed** (never
+imported, never fired). The precedence order is `builtin < user < project`
+(highest wins). Every name-clash pair is resolved by
+[`code_puppy/plugins/precedence.py`](code_puppy/plugins/precedence.py), which is
+the one place that decides winners:
+
+| Collision pair | Winner | Loser (fully suppressed) |
+|----------------|--------|--------------------------|
+| builtin vs user | user | builtin |
+| builtin vs ejected/project | project | builtin |
+| user vs project | project | user |
+| builtin vs user vs project | project | builtin **and** user |
+
+An *ejected* plugin is a builtin copied out (externalized) to the user/project
+tier; the loader treats it as an owned copy, so the same rule applies. The
+loader in `plugins/__init__.py` only *applies* `resolve_tier_skips()` — it never
+re-derives precedence, so docs and behavior can't drift.
+
 ## Available Hooks
 
 `register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.

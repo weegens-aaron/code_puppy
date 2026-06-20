@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 
 from code_puppy.callbacks import clear_loading_context, set_loading_context
+from code_puppy.plugins.precedence import resolve_tier_skips
 
 logger = logging.getLogger(__name__)
 
@@ -522,13 +523,10 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     plugins_dir = Path(__file__).parent
 
-    # Deterministic precedence: project > user > builtin.
-    #
-    # Pre-scan the *owned* tiers (user + project) before loading anything so
-    # that an owned copy FULLY SUPPRESSES the same-named builtin — the builtin
-    # never imports and never fires. Project still wins over user (the user
-    # tier skips any name the project tier will supersede), matching the
-    # agents dedup strategy. See puppy-viu.2.1.
+    # Deterministic precedence: project > user > builtin. Pre-scan the owned
+    # tiers, then delegate the entire collision policy to resolve_tier_skips —
+    # the single source of truth (see precedence.py / E2.2). This loader only
+    # *applies* the resolution; it never re-derives precedence.
     project_plugins_dir = get_project_plugins_directory()
     project_plugin_names = (
         _scan_plugin_names(project_plugins_dir)
@@ -537,15 +535,14 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     )
     user_plugin_names = _scan_plugin_names(USER_PLUGINS_DIR)
 
-    # Any owned (user or project) copy claims the name away from the builtin,
-    # which is then suppressed (and logged) inside _load_builtin_plugins.
-    owned_names = user_plugin_names | project_plugin_names
+    builtin_skip, user_skip = resolve_tier_skips(
+        user_plugin_names, project_plugin_names
+    )
 
-    builtin_loaded = _load_builtin_plugins(plugins_dir, skip_names=owned_names)
-    # User skips only names the project tier will supersede (project wins).
-    # It no longer skips builtin names: an owned copy now beats the builtin,
-    # which has already been suppressed above.
-    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=project_plugin_names)
+    # An owned (user/project) copy suppresses the same-named builtin; the
+    # project tier supersedes the user copy. precedence.py explains the matrix.
+    builtin_loaded = _load_builtin_plugins(plugins_dir, skip_names=builtin_skip)
+    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip)
 
     # Load project plugins last (highest precedence)
     project_loaded = []
