@@ -177,6 +177,24 @@ def test_eject_makes_next_sync_a_noop(tiers):
     assert [op.action for op in plan.ops] == [Action.NOOP]
 
 
+def test_eject_stamps_running_package_version(tiers):
+    """Eject stamps the running wheel version, not None (closes puppy-0gg).
+
+    On a *first* eject the installed manifest is absent, so the old code stamped
+    ``package_version=None`` -- which made the startup sync fast-path
+    (``base.package_version == running_version``) miss for one restart and do a
+    needless full hash pass. The freshly written manifest must carry the same
+    version the fast-path checks against.
+    """
+    _make_plugin(tiers["builtin"], "alpha", "v1\n")
+
+    eject.eject("alpha")
+
+    manifest = read_installed_manifest(tiers["user"])
+    assert manifest["package_version"] == eject._current_package_version()
+    assert manifest["package_version"] is not None
+
+
 def test_eject_refuses_partial_cluster(tiers):
     """Ejecting a plugin with a non-ejected sibling is refused, not auto-pulled."""
     _make_plugin(

@@ -50,6 +50,7 @@ from code_puppy.plugins.plugin_sync import (
     write_plugin_dir,
 )
 from code_puppy.plugins.shipped_manifest import compute_plugin_hash
+from code_puppy.plugins.sync_startup import _current_package_version
 
 from . import ejectable
 
@@ -175,13 +176,25 @@ def _record_baselines(root: Path, names: list[str]) -> None:
     """Record ``BASE := NEW`` for each freshly ejected plugin, preserving the rest.
 
     Reuses the shipped (NEW) hash so the next startup sync sees
-    ``BASE == NEW == CUR`` -> ``NOOP``. The existing ``package_version`` stamp
-    (the E3.3 fast-path key) and any other recorded baselines round-trip
+    ``BASE == NEW == CUR`` -> ``NOOP``. Any other recorded baselines round-trip
     untouched -- we only *add* the newly ejected names.
+
+    The ``package_version`` stamp is set to the **running** wheel version
+    (``code_puppy.__version__`` via :func:`_current_package_version`) -- the same
+    value the startup sync's fast-path compares against
+    (``base_manifest.package_version == running_version``). Stamping it here lets
+    the very next restart short-circuit the scoped sync instead of doing a full
+    hash pass (closes puppy-0gg). On a *first* eject the existing manifest is
+    absent, so the old ``manifest.get(...)`` fell back to ``None`` and defeated
+    the fast-path for one restart; reusing the exact fast-path source of truth
+    keeps the two ends from drifting. We fall back to any existing stamp only if
+    version detection itself fails (defensive).
     """
     manifest = read_installed_manifest(root)
     hashes = manifest_plugin_hashes(manifest)
-    pkg_version = manifest.get("package_version") if manifest else None
+    pkg_version = _current_package_version()
+    if pkg_version is None and manifest:
+        pkg_version = manifest.get("package_version")
     for name in names:
         base = ejectable._shipped_hash(name)
         if base is None:
