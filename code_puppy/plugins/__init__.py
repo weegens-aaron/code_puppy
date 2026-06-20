@@ -21,6 +21,13 @@ _PLUGIN_MANIFEST_MODULE = "manifest"
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
 
+# Track if the scoped ejected-plugin sync has already run this process. The sync
+# is reachable from two seams -- the explicit boot-spine call (cli_runner, before
+# load_plugin_callbacks) and the defensive call at the top of the loader itself --
+# so it needs its OWN idempotency guard, independent of _PLUGINS_LOADED, to make
+# sure it does real work exactly once per launch no matter who reaches it first.
+_STARTUP_SYNC_DONE = False
+
 # Stores the loaded plugin names by tier after the first load_plugin_callbacks() call.
 # Populated once, then read by get_loaded_plugins().
 _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "project": []}
@@ -499,6 +506,62 @@ def get_project_plugins_directory() -> Path | None:
     return None
 
 
+def run_startup_plugin_sync() -> None:
+    """Run the scoped, hash-aware ejected-plugin sync once per launch (E3.3).
+
+    This is the *startup-phase* reconciliation step: it must land the freshly
+    reconciled copy of every ejected plugin on disk **before any tier is
+    imported**, so the synced copy is what gets loaded *this* launch.
+
+    Where it is called from
+    -----------------------
+    The canonical boot spine (``cli_runner``) calls this **explicitly, right
+    before** :func:`load_plugin_callbacks` -- the sync is a distinct startup
+    step, not an incidental side effect of the loader. For defense in depth
+    (alternate entry points such as ``command_handler`` / ``prompt_toolkit`` /
+    the wiggum judge, which call ``load_plugin_callbacks`` directly), the loader
+    *also* invokes this as its very first action. Both seams are safe because
+    of the ``_STARTUP_SYNC_DONE`` guard below: whoever reaches it first does the
+    real work, everyone after is a no-op.
+
+    Why this is *not* registered as a literal post-load ``startup`` callback:
+    the ``startup`` hook phase fires from ``callbacks.on_startup()`` which runs
+    *after* ``load_plugin_callbacks`` has already imported every tier (boot
+    order: load plugins -> register callbacks -> fire ``startup``). A sync that
+    ran there would land on disk one launch too late. The earliest seam shared
+    by every entry point -- and the only one that is genuinely *before* tier
+    import -- is the head of the idempotent load, which is exactly where the
+    defensive call sits.
+
+    Thin adapter: it hands the loader's own ejected roots (user + project) to
+    :func:`code_puppy.plugins.sync_startup.run_startup_sync`. The heavy lifting
+    (fast-path, scope guard, atomic apply, conflict warnings) lives there; this
+    just supplies the roots so their definition stays DRY with the loader.
+
+    Wrapped in a broad ``except`` for defense in depth: the sync itself is
+    already best-effort, but importing it must never be the thing that blocks
+    a boot either.
+    """
+    global _STARTUP_SYNC_DONE
+    if _STARTUP_SYNC_DONE:
+        logger.debug("plugin_sync: startup sync already ran this launch; skipping")
+        return
+    # Set the guard up-front: even if the sync raises, we must not retry it on a
+    # later seam (a hard-failing sync should degrade to "run builtins from the
+    # wheel" exactly once, never loop).
+    _STARTUP_SYNC_DONE = True
+    try:
+        from code_puppy.plugins.sync_startup import run_startup_sync
+
+        roots = [USER_PLUGINS_DIR]
+        project_dir = get_project_plugins_directory()
+        if project_dir is not None:
+            roots.append(project_dir)
+        run_startup_sync(roots=roots)
+    except Exception as exc:
+        logger.warning("plugin_sync: startup sync skipped (%s)", exc)
+
+
 def load_plugin_callbacks() -> dict[str, list[str]]:
     """Dynamically load register_callbacks.py from all plugin sources.
 
@@ -520,6 +583,16 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     if _PLUGINS_LOADED:
         logger.debug("Plugins already loaded, skipping duplicate load")
         return {"builtin": [], "user": [], "project": []}
+
+    # E3.3: reconcile ejected plugins with upstream BEFORE importing any tier,
+    # so the freshly-synced copy is what gets loaded *this* launch. The boot
+    # spine (cli_runner) already calls this explicitly ahead of us; this is the
+    # defensive call that keeps the "sync before tier import" guarantee for any
+    # *other* entry point that reaches the loader first. Its own guard
+    # (_STARTUP_SYNC_DONE) makes the duplicate call a harmless no-op, and it is
+    # fully best-effort -- a sync failure degrades to running the builtins from
+    # the wheel, never to a blocked boot.
+    run_startup_plugin_sync()
 
     plugins_dir = Path(__file__).parent
 

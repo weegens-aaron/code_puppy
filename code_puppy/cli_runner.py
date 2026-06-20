@@ -49,6 +49,11 @@ from code_puppy.terminal_utils import (
 )
 from code_puppy.version_checker import default_version_mismatch_behavior
 
+# E3.3: run the scoped, hash-aware ejected-plugin sync as an explicit startup
+# step BEFORE the idempotent plugin load, so the freshly reconciled copy of any
+# ejected plugin is what gets imported this launch. Best-effort + idempotent: a
+# sync failure degrades to loading the builtins straight from the wheel.
+plugins.run_startup_plugin_sync()
 plugins.load_plugin_callbacks()
 
 

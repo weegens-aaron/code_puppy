@@ -33,7 +33,7 @@ syntheses.
 | 3 | The real blockers are **seam asymmetries**; fund three keystone hooks first | §4.2 hook table (the surface plugins bind to); §12.1 rule 1 "plugins over core" | D1's sequencing front-loads GAP-T2 / GAP-U1 / GAP-M3 |
 | 4 | Externalization surface = the **user tier** `~/.code_puppy/plugins/`; keep the canonical copy in the **builtin** tier | §4.1 three-tier discovery; §10 configuration roots | D2 chooses eject-over-in-package-canonical, not eager total relocation |
 | 5 | All migration UX (`/plugins eject`, etc.) ships as **`custom_command` plugins**, never core CLI edits | §3.4 plugin tools; §4.2 `custom_command`; §12.1 rule 1 | `command_line/` stays untouched even while building the externalization feature |
-| 6 | Hash-sync runs from the **`startup`** hook, before the idempotent builtin load | §4.2 hook table (`startup` = app boot); §13 file map (loader = `plugins/__init__.py`) | D2's engine is a startup-phase callback (E3.3) |
+| 6 | Hash-sync runs as an explicit **startup-phase step**, before the idempotent builtin load | §4.2 hook table (`startup` = app boot); §13 file map (loader = `plugins/__init__.py`) | D2's engine is `run_startup_plugin_sync()`, called from the boot spine ahead of `load_plugin_callbacks()` and defensively at the head of the loader (E3.3) |
 | 7 | Every extraction must **degrade gracefully** and emit via the **message bus**, never `print` | §11.1 message bus; §12.1 rules 4 & 5 | An inherited acceptance constraint on every impl bead |
 | 8 | Protect the harness floor as an **invariant** (BOOT / LOAD-PLUGINS / NO-OP-TURN) | §1 layered architecture; §2.1 BaseAgent conductor; §5.1 ModelFactory | §5.2 codifies the invariants any impl bead must keep green |
 
@@ -272,8 +272,8 @@ is created or built by this ADR).
   dependency):** ejected/user copy suppresses the same-named builtin (E2.1);
   tier-collision policy + tests (E2.2).
 - **Epic E3 — Scoped hash-aware sync engine:** `plugin_sync` module (E3.1),
-  build-time newline-normalized shipped-manifest generator (E3.2), wire into
-  `startup` before the idempotent load (E3.3).
+  build-time newline-normalized shipped-manifest generator (E3.2), wire the
+  startup-phase sync step in before the idempotent load (E3.3).
 - **Epic E4 — Opt-in eject surface:** `/plugins eject` (E4.1),
   `/plugins list-ejectable` + `show` (E4.2), `/plugins conflicts` reviewer
   (E4.3), dependency-cluster detection on eject (E4.4).
