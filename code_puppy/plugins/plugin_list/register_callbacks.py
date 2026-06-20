@@ -7,7 +7,8 @@ Usage::
     /plugins list-ejectable    -- list builtins eligible for eject
     /plugins show <name>       -- report a plugin's tier, eject state, edits
     /plugins conflicts         -- review pending ejected-plugin sidecars
-    /plugins eject <name>      -- copy a builtin (+cluster) out to the user dir
+    /plugins eject <name>      -- copy a builtin out to the user dir (refuses
+                                  partial clusters; add --cluster to eject all)
     /plugins disable <name>    -- disable a plugin (callbacks are skipped)
     /plugins enable <name>     -- re-enable a disabled plugin
 
@@ -140,26 +141,39 @@ def _handle_show(plugin_name: str) -> bool:
 
 
 def _handle_eject(args: list[str]) -> bool:
-    """Route ``/plugins eject <name> [user|project]`` -- the eject action.
+    """Route ``/plugins eject <name> [user|project] [--cluster]`` -- the action.
 
-    Copies the named builtin (and its dependency cluster) out to the chosen
-    owned tier (default: user) and records the baseline so the ejected copy
-    wins on the next launch. Closes L5 by ejecting the whole cluster, never a
-    partial subset.
+    Copies the named builtin out to the chosen owned tier (default: user) and
+    records the baseline so the ejected copy wins on the next launch. Closes L5
+    by **refusing a partial eject**: if the plugin still absolute-imports a
+    non-ejected sibling, the eject is refused unless ``--cluster`` is passed,
+    which ejects the whole dependency cluster in one go.
     """
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     from . import eject as ej
 
-    if not args:
-        emit_error("Usage: /plugins eject <plugin-name> [user|project]")
+    # Pull the --cluster opt-in out of the positional args first.
+    cluster = False
+    positional: list[str] = []
+    for arg in args:
+        if arg.lower() in ("--cluster", "-c"):
+            cluster = True
+        else:
+            positional.append(arg)
+
+    if not positional:
+        emit_error("Usage: /plugins eject <plugin-name> [user|project] [--cluster]")
         return True
 
-    name = args[0]
-    target = args[1].lower() if len(args) > 1 else "user"
-    result = ej.eject(name, target=target)
+    name = positional[0]
+    target = positional[1].lower() if len(positional) > 1 else "user"
+    result = ej.eject(name, target=target, cluster=cluster)
     text = ej.format_eject_result(result)
-    if not result.ok:
+    if result.refused:
+        # A partial-cluster refusal is a nudge, not a hard error -- warn + hint.
+        emit_warning(text)
+    elif not result.ok:
         emit_error(text)
     elif result.ejected:
         emit_success(text)

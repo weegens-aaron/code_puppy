@@ -5,8 +5,11 @@ Acceptance criteria proven here:
 * ``/plugins eject <name>`` copies the plugin to the user dir, records its
   baseline hash, and the ejected copy would load + suppress the builtin on the
   next launch.
-* A plugin with cross-plugin builtin imports ejects its whole **dependency
-  cluster** (closes L5 -- no partial ejects).
+* A plugin with a **non-ejected** cross-plugin sibling is *refused* (closes L5
+  -- no partial ejects) with a clear message + the ``--cluster`` opt-in; passing
+  ``cluster=True`` ejects the whole **dependency cluster**.
+* A standalone plugin -- or one whose siblings are all already ejected -- ejects
+  normally with no opt-in.
 * Already-ejected members are skipped, never clobbered; non-builtins are
   refused.
 
@@ -174,7 +177,8 @@ def test_eject_makes_next_sync_a_noop(tiers):
     assert [op.action for op in plan.ops] == [Action.NOOP]
 
 
-def test_eject_cluster_pulls_dependency(tiers):
+def test_eject_refuses_partial_cluster(tiers):
+    """Ejecting a plugin with a non-ejected sibling is refused, not auto-pulled."""
     _make_plugin(
         tiers["builtin"], "alpha", "from code_puppy.plugins.beta import thing\n"
     )
@@ -182,12 +186,60 @@ def test_eject_cluster_pulls_dependency(tiers):
 
     result = eject.eject("alpha")
 
+    assert result.ok is False
+    assert result.refused is True
+    assert result.requires_cluster == ("beta",)
+    assert result.ejected == ()
+    # Nothing was written -- not even alpha.
+    assert not (tiers["user"] / "alpha").exists()
+    assert not (tiers["user"] / "beta").exists()
+    assert read_installed_manifest(tiers["user"]) is None
+    assert "--cluster" in result.message
+    assert "beta" in result.message
+
+
+def test_eject_cluster_opt_in_pulls_dependency(tiers):
+    _make_plugin(
+        tiers["builtin"], "alpha", "from code_puppy.plugins.beta import thing\n"
+    )
+    _make_plugin(tiers["builtin"], "beta", "thing = 1\n")
+
+    result = eject.eject("alpha", cluster=True)
+
     assert result.ok is True
+    assert result.refused is False
     assert set(result.ejected) == {"alpha", "beta"}
     assert (tiers["user"] / "alpha" / "register_callbacks.py").exists()
     assert (tiers["user"] / "beta" / "register_callbacks.py").exists()
     base = manifest_plugin_hashes(read_installed_manifest(tiers["user"]))
     assert "alpha" in base and "beta" in base
+
+
+def test_eject_proceeds_when_sibling_already_ejected(tiers):
+    """No refusal when every imported sibling is already present in the tier."""
+    _make_plugin(
+        tiers["builtin"], "alpha", "from code_puppy.plugins.beta import thing\n"
+    )
+    _make_plugin(tiers["builtin"], "beta", "thing = 1\n")
+    _make_plugin(tiers["user"], "beta", "thing = 1\n")  # sibling already ejected
+
+    result = eject.eject("alpha")
+
+    assert result.ok is True
+    assert result.refused is False
+    assert result.ejected == ("alpha",)
+    assert result.skipped == ("beta",)
+
+
+def test_eject_standalone_plugin_needs_no_opt_in(tiers):
+    """A plugin with no cross-plugin imports ejects normally without --cluster."""
+    _make_plugin(tiers["builtin"], "alpha", "x = 1\n")
+
+    result = eject.eject("alpha")
+
+    assert result.ok is True
+    assert result.refused is False
+    assert result.ejected == ("alpha",)
 
 
 def test_eject_skips_already_ejected_member_without_clobbering(tiers):
@@ -297,3 +349,29 @@ def test_format_eject_result_cluster_with_skip(tiers):
 def test_format_eject_result_failure(tiers):
     text = eject.format_eject_result(eject.eject("ghost"))
     assert "not found" in text
+
+
+def test_format_eject_result_refusal(tiers):
+    _make_plugin(
+        tiers["builtin"], "alpha", "from code_puppy.plugins.beta import thing\n"
+    )
+    _make_plugin(tiers["builtin"], "beta", "thing = 1\n")
+
+    result = eject.eject("alpha")
+    text = eject.format_eject_result(result)
+
+    assert "Refusing to eject 'alpha'" in text
+    assert "beta" in text
+    assert "/plugins eject alpha --cluster" in text
+
+
+def test_format_eject_result_refusal_to_project_keeps_target_flag(tiers):
+    _make_plugin(
+        tiers["builtin"], "alpha", "from code_puppy.plugins.beta import thing\n"
+    )
+    _make_plugin(tiers["builtin"], "beta", "thing = 1\n")
+
+    result = eject.eject("alpha", target="project")
+    text = eject.format_eject_result(result)
+
+    assert "/plugins eject alpha project --cluster" in text

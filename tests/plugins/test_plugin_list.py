@@ -227,7 +227,7 @@ class TestEjectActionSubcommand:
         ):
             result = _handle_custom_command("/plugins eject alpha", "plugins")
             assert result is True
-            mock_eject.assert_called_once_with("alpha", target="user")
+            mock_eject.assert_called_once_with("alpha", target="user", cluster=False)
             mock_ok.assert_called_once()
             assert "alpha" in mock_ok.call_args[0][0]
 
@@ -251,7 +251,56 @@ class TestEjectActionSubcommand:
             patch("code_puppy.messaging.emit_success"),
         ):
             _handle_custom_command("/plugins eject alpha project", "plugins")
-            mock_eject.assert_called_once_with("alpha", target="project")
+            mock_eject.assert_called_once_with("alpha", target="project", cluster=False)
+
+    def test_eject_cluster_flag_opts_in(self):
+        from code_puppy.plugins.plugin_list.eject import EjectResult
+
+        ok = EjectResult(
+            ok=True,
+            name="alpha",
+            target_tier="user",
+            cluster=("alpha", "beta"),
+            ejected=("alpha", "beta"),
+            skipped=(),
+            message="done",
+        )
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.eject.eject",
+                return_value=ok,
+            ) as mock_eject,
+            patch("code_puppy.messaging.emit_success"),
+        ):
+            # --cluster anywhere in the args is pulled out of the positionals.
+            _handle_custom_command("/plugins eject alpha project --cluster", "plugins")
+            mock_eject.assert_called_once_with("alpha", target="project", cluster=True)
+
+    def test_eject_refusal_emits_warning(self):
+        from code_puppy.plugins.plugin_list.eject import EjectResult
+
+        refused = EjectResult(
+            ok=False,
+            name="alpha",
+            target_tier="user",
+            cluster=("alpha", "beta"),
+            requires_cluster=("beta",),
+            refused=True,
+            message="Refusing to eject 'alpha' on its own ... --cluster",
+        )
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.eject.eject",
+                return_value=refused,
+            ),
+            patch("code_puppy.messaging.emit_warning") as mock_warn,
+            patch("code_puppy.messaging.emit_error") as mock_err,
+        ):
+            result = _handle_custom_command("/plugins eject alpha", "plugins")
+            assert result is True
+            mock_warn.assert_called_once()
+            mock_err.assert_not_called()
+            assert "--cluster" in mock_warn.call_args[0][0]
 
     def test_eject_failure_emits_error(self):
         from code_puppy.plugins.plugin_list.eject import EjectResult

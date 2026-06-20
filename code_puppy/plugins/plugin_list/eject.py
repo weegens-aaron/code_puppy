@@ -19,12 +19,16 @@ A builtin may import *another* builtin with an **absolute** cross-plugin import
 cross-plugin deps stay absolute. Ejecting such a plugin *alone* would leave a
 half-relocated slice: you could edit the plugin but not the sibling it leans on.
 
-So eject works on the whole **dependency cluster**: the transitive closure of a
-plugin's outgoing cross-plugin builtin imports. Ejecting ``A`` that needs ``B``
-ejects ``{A, B}`` together. This is what "refusing partial ejects" means -- we
-never externalize a *subset* of a cluster, so the ejected slice is always a
-self-contained, editable unit (closes liability L5).
-
+So eject is **cluster-aware**: it computes the whole **dependency cluster** --
+the transitive closure of a plugin's outgoing cross-plugin builtin imports --
+and *refuses a partial eject*. If you ask to eject ``A`` while it still imports a
+**non-ejected** sibling ``B``, the eject is **refused with a clear message** and
+an explicit opt-in to eject the whole cluster (``cluster=True`` /
+``/plugins eject A --cluster``). Only when every sibling is already ejected (or
+when you opt into the cluster) does the eject proceed -- so the ejected slice is
+always a self-contained, editable unit and we never externalize a *subset* of a
+cluster (closes liability L5). A standalone plugin (no cross-plugin imports)
+ejects normally, no opt-in required.</new_str>
 Everything here is pure data-gathering + deterministic filesystem mutation +
 pure string formatting -- no message bus -- so it is unit-testable in isolation.
 ``register_callbacks.py`` only wires the result to ``emit_*``. Tier roots are
@@ -144,6 +148,12 @@ class EjectResult:
     cluster: tuple[str, ...] = field(default_factory=tuple)
     ejected: tuple[str, ...] = field(default_factory=tuple)  # newly written
     skipped: tuple[str, ...] = field(default_factory=tuple)  # already present
+    # Non-ejected siblings that forced a refusal (empty unless ``refused``).
+    requires_cluster: tuple[str, ...] = field(default_factory=tuple)
+    # True when the eject was refused *because* of a partial cluster -- distinct
+    # from a hard error (unknown plugin, bad target). Lets the CLI nudge with a
+    # warning + the opt-in hint instead of a flat error.
+    refused: bool = False
     message: str = ""
 
 
@@ -181,13 +191,20 @@ def _record_baselines(root: Path, names: list[str]) -> None:
     write_installed_manifest(root, hashes, package_version=pkg_version)
 
 
-def eject(name: str, *, target: str = "user") -> EjectResult:
-    """Eject *name* (and its dependency cluster) to the *target* tier.
+def eject(name: str, *, target: str = "user", cluster: bool = False) -> EjectResult:
+    """Eject *name* to the *target* tier, refusing partial clusters (closes L5).
 
     Copies each not-yet-ejected cluster member out of the wheel with the atomic,
     L4-safe :func:`write_plugin_dir` swap, then records their baselines. Members
     already present in the target tier are **skipped, never clobbered** -- the
     user's copy and edits are sacred; we only complete the cluster.
+
+    If *name* still absolute-imports a **non-ejected** sibling and *cluster* is
+    ``False``, the eject is **refused** (``ok=False, refused=True``) with a clear
+    message + the opt-in hint -- we never strand a half-relocated slice. Pass
+    ``cluster=True`` (``/plugins eject <name> --cluster``) to eject the whole
+    cluster in one go. A standalone plugin -- or one whose siblings are all
+    already ejected -- ejects normally regardless of *cluster*.
     """
     target = target.lower()
     if target not in _EJECT_TIERS:
@@ -226,12 +243,31 @@ def eject(name: str, *, target: str = "user") -> EjectResult:
         )
     root = Path(root)
 
-    cluster = resolve_cluster(name)
+    cluster_members = resolve_cluster(name)
     builtin_root = ejectable.get_builtin_plugins_dir()
+
+    # Refuse a *partial* eject: if a sibling this plugin absolute-imports is not
+    # already present in the target tier, ejecting *name* alone would strand a
+    # half-relocated cluster. Demand the explicit cluster opt-in instead.
+    pending_siblings = sorted(
+        member
+        for member in cluster_members
+        if member != name and not ejectable._has_plugin(root, member)
+    )
+    if pending_siblings and not cluster:
+        return EjectResult(
+            ok=False,
+            name=name,
+            target_tier=target,
+            cluster=tuple(cluster_members),
+            requires_cluster=tuple(pending_siblings),
+            refused=True,
+            message=_refusal_message(name, target, cluster_members, pending_siblings),
+        )
 
     ejected: list[str] = []
     skipped: list[str] = []
-    for member in cluster:
+    for member in cluster_members:
         if ejectable._has_plugin(root, member):
             skipped.append(member)  # already ejected here -> leave it alone
             continue
@@ -242,7 +278,7 @@ def eject(name: str, *, target: str = "user") -> EjectResult:
                 ok=False,
                 name=name,
                 target_tier=target,
-                cluster=tuple(cluster),
+                cluster=tuple(cluster_members),
                 ejected=tuple(ejected),
                 skipped=tuple(skipped),
                 message=f"Failed to eject '{member}': {exc}",
@@ -256,16 +292,36 @@ def eject(name: str, *, target: str = "user") -> EjectResult:
         ok=True,
         name=name,
         target_tier=target,
-        cluster=tuple(cluster),
+        cluster=tuple(cluster_members),
         ejected=tuple(ejected),
         skipped=tuple(skipped),
-        message=_summary(name, target, cluster, ejected, skipped),
+        message=_summary(name, target, cluster_members, ejected, skipped),
     )
 
 
 # ---------------------------------------------------------------------------
 # pure string formatting (no message bus)
 # ---------------------------------------------------------------------------
+
+
+def _refusal_message(
+    name: str,
+    target: str,
+    cluster: list[str],
+    pending_siblings: list[str],
+) -> str:
+    """Render the partial-cluster refusal: what's blocking + the opt-in hint."""
+    siblings = ", ".join(pending_siblings)
+    plural = "sibling" if len(pending_siblings) == 1 else "siblings"
+    target_flag = "" if target == "user" else f" {target}"
+    return (
+        f"Refusing to eject '{name}' on its own: it absolute-imports the "
+        f"non-ejected {plural} {siblings}. Ejecting it alone would strand a "
+        "half-relocated cluster -- you could edit "
+        f"'{name}' but not {siblings}.\n"
+        f"Eject the whole dependency cluster ({', '.join(cluster)}) instead:\n"
+        f"   /plugins eject {name}{target_flag} --cluster"
+    )
 
 
 def _summary(
