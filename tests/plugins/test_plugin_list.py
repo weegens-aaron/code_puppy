@@ -195,6 +195,84 @@ class TestEjectSubcommands:
             assert "list-ejectable" in msg
             assert "show" in msg
             assert "conflicts" in msg
+            assert "eject" in msg
+
+
+class TestEjectActionSubcommand:
+    def test_eject_requires_a_name(self):
+        with patch("code_puppy.messaging.emit_error") as mock_err:
+            result = _handle_custom_command("/plugins eject", "plugins")
+            assert result is True
+            mock_err.assert_called_once()
+            assert "Usage" in mock_err.call_args[0][0]
+
+    def test_eject_routes_and_emits_success(self):
+        from code_puppy.plugins.plugin_list.eject import EjectResult
+
+        ok = EjectResult(
+            ok=True,
+            name="alpha",
+            target_tier="user",
+            cluster=("alpha",),
+            ejected=("alpha",),
+            skipped=(),
+            message="Ejected 'alpha' to the user tier.",
+        )
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.eject.eject",
+                return_value=ok,
+            ) as mock_eject,
+            patch("code_puppy.messaging.emit_success") as mock_ok,
+        ):
+            result = _handle_custom_command("/plugins eject alpha", "plugins")
+            assert result is True
+            mock_eject.assert_called_once_with("alpha", target="user")
+            mock_ok.assert_called_once()
+            assert "alpha" in mock_ok.call_args[0][0]
+
+    def test_eject_passes_target_tier(self):
+        from code_puppy.plugins.plugin_list.eject import EjectResult
+
+        ok = EjectResult(
+            ok=True,
+            name="alpha",
+            target_tier="project",
+            cluster=("alpha",),
+            ejected=("alpha",),
+            skipped=(),
+            message="done",
+        )
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.eject.eject",
+                return_value=ok,
+            ) as mock_eject,
+            patch("code_puppy.messaging.emit_success"),
+        ):
+            _handle_custom_command("/plugins eject alpha project", "plugins")
+            mock_eject.assert_called_once_with("alpha", target="project")
+
+    def test_eject_failure_emits_error(self):
+        from code_puppy.plugins.plugin_list.eject import EjectResult
+
+        bad = EjectResult(
+            ok=False,
+            name="ghost",
+            target_tier="user",
+            message="Plugin 'ghost' not found in any tier.",
+        )
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.eject.eject",
+                return_value=bad,
+            ),
+            patch("code_puppy.messaging.emit_error") as mock_err,
+        ):
+            result = _handle_custom_command("/plugins eject ghost", "plugins")
+            assert result is True
+            mock_err.assert_called_once()
+            assert "not found" in mock_err.call_args[0][0]
 
 
 class TestConflictsSubcommand:

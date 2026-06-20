@@ -7,6 +7,7 @@ Usage::
     /plugins list-ejectable    -- list builtins eligible for eject
     /plugins show <name>       -- report a plugin's tier, eject state, edits
     /plugins conflicts         -- review pending ejected-plugin sidecars
+    /plugins eject <name>      -- copy a builtin (+cluster) out to the user dir
     /plugins disable <name>    -- disable a plugin (callbacks are skipped)
     /plugins enable <name>     -- re-enable a disabled plugin
 
@@ -135,6 +136,35 @@ def _handle_show(plugin_name: str) -> bool:
     from .ejectable import describe, format_show
 
     emit_info(format_show(describe(plugin_name)))
+    return True
+
+
+def _handle_eject(args: list[str]) -> bool:
+    """Route ``/plugins eject <name> [user|project]`` -- the eject action.
+
+    Copies the named builtin (and its dependency cluster) out to the chosen
+    owned tier (default: user) and records the baseline so the ejected copy
+    wins on the next launch. Closes L5 by ejecting the whole cluster, never a
+    partial subset.
+    """
+    from code_puppy.messaging import emit_error, emit_info, emit_success
+
+    from . import eject as ej
+
+    if not args:
+        emit_error("Usage: /plugins eject <plugin-name> [user|project]")
+        return True
+
+    name = args[0]
+    target = args[1].lower() if len(args) > 1 else "user"
+    result = ej.eject(name, target=target)
+    text = ej.format_eject_result(result)
+    if not result.ok:
+        emit_error(text)
+    elif result.ejected:
+        emit_success(text)
+    else:
+        emit_info(text)
     return True
 
 
@@ -272,6 +302,9 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if subcommand == "conflicts":
         return _handle_conflicts(tokens[2:])
 
+    if subcommand == "eject":
+        return _handle_eject(tokens[2:])
+
     if subcommand == "disable":
         if len(tokens) < 3:
             emit_error("Usage: /plugins disable <plugin-name>")
@@ -287,7 +320,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     emit_error(
         f"Unknown subcommand: '{subcommand}'. "
         "Usage: /plugins [list | list-ejectable | show <name> | "
-        "conflicts | enable <name> | disable <name>]"
+        "conflicts | eject <name> | enable <name> | disable <name>]"
     )
     return True
 
