@@ -33,6 +33,9 @@ main.bin
 # Bundled skills removed — skills are now fetched from remote catalog
 code_puppy/bundled_skills/
 
+# Build-time generated shipped plugin manifest (E3.2) — emitted by hatch_build.py
+code_puppy/plugins/_shipped_manifest.json
+
 # Hook engine runtime artifacts (logs, compiled outputs)
 .claude/activity.jsonl
 .claude/hooks/audit.log

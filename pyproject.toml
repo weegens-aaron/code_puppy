@@ -70,6 +70,15 @@ ignore_no_config = true
 [tool.hatch.build]
 packages = ["code_puppy"]
 
+# Build-time generation of the shipped plugin manifest (E3.2). The hook emits
+# code_puppy/plugins/_shipped_manifest.json (newline-normalized sha256 per
+# builtin plugin) and force-includes it so it ships inside the wheel & sdist.
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel.shared-data]
 "code_puppy/models.json" = "code_puppy/models.json"
 "code_puppy/models_dev_api.json" = "code_puppy/models_dev_api.json"
