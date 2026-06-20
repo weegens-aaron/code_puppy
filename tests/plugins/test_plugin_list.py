@@ -194,6 +194,86 @@ class TestEjectSubcommands:
             msg = mock_err.call_args[0][0]
             assert "list-ejectable" in msg
             assert "show" in msg
+            assert "conflicts" in msg
+
+
+class TestConflictsSubcommand:
+    def test_bare_conflicts_lists(self):
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.conflicts.list_conflicts",
+                return_value=[],
+            ),
+            patch("code_puppy.messaging.emit_info") as mock_emit,
+        ):
+            result = _handle_custom_command("/plugins conflicts", "plugins")
+            assert result is True
+            mock_emit.assert_called_once()
+            assert "No pending plugin conflicts" in mock_emit.call_args[0][0]
+
+    def test_unknown_conflicts_action_errors(self):
+        with patch("code_puppy.messaging.emit_error") as mock_err:
+            result = _handle_custom_command("/plugins conflicts bogus", "plugins")
+            assert result is True
+            mock_err.assert_called_once()
+            assert "Unknown conflicts action" in mock_err.call_args[0][0]
+
+    def test_action_requires_a_name(self):
+        with patch("code_puppy.messaging.emit_error") as mock_err:
+            result = _handle_custom_command(
+                "/plugins conflicts accept-upstream", "plugins"
+            )
+            assert result is True
+            mock_err.assert_called_once()
+            assert "Usage" in mock_err.call_args[0][0]
+
+    def test_no_matching_conflict_errors(self):
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.conflicts.find_conflict",
+                return_value=[],
+            ),
+            patch("code_puppy.messaging.emit_error") as mock_err,
+        ):
+            result = _handle_custom_command(
+                "/plugins conflicts keep-mine ghost", "plugins"
+            )
+            assert result is True
+            mock_err.assert_called_once()
+            assert "No pending conflict" in mock_err.call_args[0][0]
+
+    def test_accept_upstream_routes_and_emits_success(self):
+        from code_puppy.plugins.plugin_list.conflicts import Conflict, ResolveResult
+
+        fake = Conflict(
+            name="alpha",
+            tier="user",
+            ejected_root=Path("/tmp"),
+            sidecar_dir=Path("/tmp/.plugin_conflicts/alpha"),
+            plugin_dir=Path("/tmp/alpha"),
+            current_hash="c",
+            upstream_hash="n",
+            base_hash="b",
+        )
+        ok = ResolveResult(True, "accept-upstream", "alpha", "user", "done!")
+        with (
+            patch(
+                "code_puppy.plugins.plugin_list.conflicts.find_conflict",
+                return_value=[fake],
+            ),
+            patch(
+                "code_puppy.plugins.plugin_list.conflicts.accept_upstream",
+                return_value=ok,
+            ) as mock_accept,
+            patch("code_puppy.messaging.emit_success") as mock_ok,
+        ):
+            result = _handle_custom_command(
+                "/plugins conflicts accept-upstream alpha", "plugins"
+            )
+            assert result is True
+            mock_accept.assert_called_once_with(fake)
+            mock_ok.assert_called_once()
+            assert "done!" in mock_ok.call_args[0][0]
 
 
 class TestCustomHelp:

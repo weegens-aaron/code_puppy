@@ -6,6 +6,7 @@ Usage::
     /plugins list              -- print loaded plugins with status
     /plugins list-ejectable    -- list builtins eligible for eject
     /plugins show <name>       -- report a plugin's tier, eject state, edits
+    /plugins conflicts         -- review pending ejected-plugin sidecars
     /plugins disable <name>    -- disable a plugin (callbacks are skipped)
     /plugins enable <name>     -- re-enable a disabled plugin
 
@@ -137,6 +138,70 @@ def _handle_show(plugin_name: str) -> bool:
     return True
 
 
+def _handle_conflicts(args: list[str]) -> bool:
+    """Route the ``/plugins conflicts [...]`` reviewer subcommands.
+
+    Bare ``conflicts`` lists pending sidecars; the action verbs each resolve a
+    single named conflict (and advance the installed-manifest baseline).
+    """
+    from code_puppy.messaging import emit_error, emit_info, emit_success
+
+    from . import conflicts as cf
+
+    # Bare /plugins conflicts -> list pending sidecars.
+    if not args:
+        emit_info(cf.format_conflict_list(cf.list_conflicts()))
+        return True
+
+    action = args[0].lower()
+
+    if action not in ("diff", "accept-upstream", "keep-mine"):
+        emit_error(
+            f"Unknown conflicts action: '{action}'. "
+            "Usage: /plugins conflicts [diff <name> | accept-upstream <name> | "
+            "keep-mine <name>]"
+        )
+        return True
+
+    if len(args) < 2:
+        emit_error(f"Usage: /plugins conflicts {action} <plugin-name>")
+        return True
+
+    name = args[1]
+    matches = cf.find_conflict(name)
+    if not matches:
+        emit_error(
+            f"No pending conflict for '{name}'. "
+            "Use /plugins conflicts to list pending sidecars."
+        )
+        return True
+
+    # Resolve the highest-precedence tier (project before user) -- that is the
+    # copy the loader actually runs. find_conflict() returns them in that order.
+    target = matches[0]
+
+    if action == "diff":
+        emit_info(cf.diff_conflict(target))
+        return True
+
+    result = (
+        cf.accept_upstream(target)
+        if action == "accept-upstream"
+        else cf.keep_mine(target)
+    )
+    if result.ok:
+        emit_success(result.message)
+        if len(matches) > 1:
+            remaining = ", ".join(sorted(m.tier for m in matches[1:]))
+            emit_info(
+                f"Note: '{name}' also has a pending conflict in: {remaining}. "
+                "Re-run the command to resolve it too."
+            )
+    else:
+        emit_error(result.message)
+    return True
+
+
 def _handle_enable(plugin_name: str) -> bool:
     """Enable a previously disabled plugin."""
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -163,7 +228,10 @@ def _handle_enable(plugin_name: str) -> bool:
 
 def _custom_help() -> list[tuple[str, str]]:
     return [
-        ("plugins", "List, show, enable, disable, or list-ejectable plugins"),
+        (
+            "plugins",
+            "List, show, enable, disable, eject, or review plugin conflicts",
+        ),
     ]
 
 
@@ -201,6 +269,9 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
             return True
         return _handle_show(tokens[2])
 
+    if subcommand == "conflicts":
+        return _handle_conflicts(tokens[2:])
+
     if subcommand == "disable":
         if len(tokens) < 3:
             emit_error("Usage: /plugins disable <plugin-name>")
@@ -216,7 +287,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     emit_error(
         f"Unknown subcommand: '{subcommand}'. "
         "Usage: /plugins [list | list-ejectable | show <name> | "
-        "enable <name> | disable <name>]"
+        "conflicts | enable <name> | disable <name>]"
     )
     return True
 

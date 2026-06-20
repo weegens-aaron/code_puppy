@@ -79,6 +79,7 @@ __all__ = [
     "UpdatePlan",
     "plan_update",
     "apply_update",
+    "write_plugin_dir",
     "compute_current_hashes",
     "read_installed_manifest",
     "write_installed_manifest",
@@ -345,6 +346,17 @@ def _apply_one(op: PluginOp, ejected_root: Path, source_root: Path) -> None:
     elif op.action == Action.DELETE:
         shutil.rmtree(target, ignore_errors=True)
     # NOOP / ADOPT / PRESERVE / KEEP_ORPHAN: leave the disk exactly as-is.
+
+
+def write_plugin_dir(src: Path, target: Path) -> None:
+    """Atomically replace *target* with a clean copy of *src*. **Public.**
+
+    The single-sourced, L4-safe atomic swap used by both the startup sync and
+    the E4.3 conflicts reviewer (accept-upstream). Copies into a sibling temp
+    dir (same filesystem), then swaps with ``os.replace`` so a reader never
+    sees a half-written plugin directory.
+    """
+    _write_plugin_dir(Path(src), Path(target))
 
 
 def _write_plugin_dir(src: Path, target: Path) -> None:
