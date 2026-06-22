@@ -50,3 +50,6 @@ code_puppy/bundled_skills/
 .dolt/
 *.db
 .beads-credential-key
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/

@@ -292,3 +292,195 @@ the later `close()` that re-validates the in-flight bead is still closable.
 - And it can **decouple bug-wiring failures from chain liveness** — e.g.
   validate filed-bug edges before they can block the in-flight bead, so a
   mis-wired bug parks one bead rather than halting the whole chain.
+
+---
+
+## Thought 5 — Plugin owns the full line; staffing is pluggable; surfacing is non-LLM
+
+**Claim captured (composite):** The new plugin owns the entire pipeline end-to-end —
+**no dependency on `wiggum`, `/goal`, or `judges.json`.** Worker and inspector
+**staffing agents** ship with the plugin but are pluggable: a user can swap in
+their own staffing agent, or **disable staffing entirely** and fall back to a
+single default worker (code-puppy) + default judge pool. Crafted system prompts
+accumulate in a **prompt pool**, and **non-LLM methods** must surface candidate
+prompts from that pool — staffing decisions cannot afford an LLM call per bead.
+
+### 5.1 Ownership: the plugin replaces the wiggum/goal/judges stack
+
+The current pipeline (synthesis §1) crosses **two plugins** sharing one in-process
+boolean:
+
+```
+bead-chain hook → wiggum hook → judges.json → WiggumState.active = False → bd close
+```
+
+The new plugin **owns every box** in `possible-flow.canvas`:
+
+- Bead pulling (today: `bead-chain`'s `lifecycle.pick_next_bead`).
+- Worker composition + execution (today: core's frozen agent + `wiggum`'s loop).
+- Inspector composition + voting (today: `judges.json` static roster + hardcoded
+  unanimity in `wiggum/register_callbacks.py::_run_goal_judges`).
+- Verdict → `bd close` (today: the lossy 1-bit seam, synthesis §4).
+
+**Consequences this unlocks:**
+
+1. **The seam stops being one bit.** With no inter-plugin handoff there is no
+   shared `is_active()` to read. The inspection step returns a structured
+   verdict in-process (the §4 false-positive close path simply cannot exist).
+2. **No more hook-ordering dance.** Today `bead-chain` registers its
+   `interactive_turn_end` hook LAZILY (synthesis §2.4) so it appends after
+   `wiggum`'s — that ordering IS the synchronization primitive. Owning the loop
+   replaces an emergent invariant with a function call.
+3. **`remediation_notes` stop being intra-wiggum** (synthesis §5.3). Inspector
+   content can flow out to the driver for per-bead insight without crossing a
+   plugin boundary.
+4. **The close-guard simplifies.** Today `close_guard.py` blocks
+   *agent-issued* `bd close` while the chain is active (synthesis §5.4) because
+   the implementor and the judges share the agent surface. With a plugin-owned
+   inspector path, the closer is the plugin itself; the guard becomes a default-
+   on policy, not a structural necessity.
+
+### 5.2 Staffing modes (three, per side — worker and inspector are symmetric)
+
+Each side of the pipeline (worker staffing, inspector staffing) has the same
+three modes, set independently:
+
+| Mode | Behavior | When to use |
+|------|----------|-------------|
+| **plugin-default** | Built-in staffing agent composes the 5 layers (prompt / bead content / tools / skills / mcp) per bead | Default; covers the canvas's "per bead agent and judge panel creation" |
+| **BYO** | User-supplied staffing agent (any registered agent) is invoked with the bead + pool access; returns an `AgentSpec` | Domain-specific staffing (e.g. a frontend-aware staffer that always picks WCAG-tuned inspectors) |
+| **disabled** | Skip composition; use the **single default worker** (code-puppy with its built-in toolset) and the **default judge pool** | Cheapest path; mirrors today's `/goal` behavior; useful as a baseline for A/B comparisons |
+
+The two sides are independent: disabling **worker** staffing while keeping
+**inspector** staffing on is a valid configuration (and probably the lowest-risk
+incremental rollout — get smarter inspection first, leave the implementor as
+code-puppy).
+
+**Staffing-agent contract (uniform across modes):** `(bead, pool, ctx) -> AgentSpec`
+where `AgentSpec` is the 5-layer recipe (prompt-id, bead-content slice, tool
+set, skill set, mcp set) — i.e. the canvas's worker/inspector composition stack
+is the *output schema* of any staffing agent, not a fixed control flow.
+
+### 5.3 The prompt pool — a curated registry, not a roster
+
+Crafted **system prompts** accumulate in a pool. This is the structural analog
+of the UC tool registry (Thought 3): persisted, globally discoverable, additive
+across runs.
+
+| Aspect | Prompt pool | UC tool registry (Thought 3) |
+|--------|-------------|------------------------------|
+| Unit | Crafted agent system prompt + metadata (tags, embeddings, prior-pass stats) | Forged Python tool file + `TOOL_META` |
+| Storage | Plugin-owned (TBD: `$DATA_DIR/prompt_pool/*.md` or similar) | `USER_UC_DIR/*.py` |
+| Authoring | Manually crafted, imported, or distilled from prior runs | UC/Helios `create` action |
+| Discovery | Non-LLM surfacing (§5.4) | `UCRegistry.scan()` rglob |
+| Per-bead use | Staffing agent picks N candidates per slot (worker prompt, each inspector prompt) | Staffing agent attaches relevant tools |
+
+Crucially the pool is **not a roster.** Today's `judges.json` IS a roster — the
+*set of judges that vote* is the file's contents. A prompt pool is a **menu**:
+the staffing agent picks per-bead which prompts to instantiate. Same prompt can
+back a worker on one bead and an inspector on another.
+
+### 5.4 Non-LLM surfacing is load-bearing, not an optimization
+
+**Why no LLM in the surfacing layer:**
+
+- **Cost.** A 50-bead chain with staffing-pick-via-LLM = 50 extra LLM calls just
+  to pick a prompt, before any actual work. Compounds with N inspectors per bead.
+- **Determinism.** Staffing decisions need to be reproducible — same bead, same
+  pool, same surfacing result. Reproducible failures are debuggable; LLM-picked
+  prompts are not.
+- **Latency on the hot path.** Staffing sits between every bead transition; an
+  LLM call there serializes the whole chain on the slowest model.
+- **Bootstrapping.** When the pool is small (early days), LLM ranking adds
+  almost nothing over a hand-tuned tag match.
+
+**Candidate non-LLM methods (decision deferred, options listed):**
+
+| Method | What it indexes | Strength | Weakness |
+|--------|-----------------|----------|----------|
+| **Tag match** | Hand-authored tags on each pool entry (e.g. `frontend`, `tdd`, `security-review`) | Trivial; deterministic; cheap to author | Requires curation; brittle to taxonomy drift |
+| **BM25 / sparse retrieval** over prompt body + bead text | Lexical overlap | No embedding model needed; works zero-config | Misses synonymy |
+| **Dense embeddings** (precomputed once per pool entry; cosine vs bead embedding) | Semantic similarity | Catches paraphrase; works without tags | Needs an embedding model + cache |
+| **Prior-pass score** (per-prompt rolling success rate from prior inspections) | Empirical performance | Closes the loop with §5.6 verdicts | Cold-start problem on new prompts |
+| **Hybrid** (tag pre-filter → BM25/embed rank → prior-pass tiebreak) | All of the above | Best practical accuracy | Most moving parts |
+
+The staffing agent receives the surfacing result as a *ranked candidate list*
+and makes the final pick — possibly with an LLM call inside the staffing agent
+itself when it runs (that LLM call is amortized across all 5 layers of one
+spec, not per-prompt).
+
+### 5.5 Built-in agents the plugin ships (the "with batteries" baseline)
+
+To preserve out-of-the-box usability while staying pluggable:
+
+- **Default worker staffing agent** — plugin-built; uses non-LLM surfacing +
+  cheap LLM finalization to produce an `AgentSpec`.
+- **Default inspector staffing agent** — same shape, but emits N specs (one per
+  inspector); also decides the panel size and quorum policy per bead.
+- **Default worker** (disabled-mode fallback) — **code-puppy** with its
+  built-in toolset; matches today's `/goal` implementor behavior.
+- **Default judge pool** (disabled-mode fallback) — a small, fixed inspector
+  panel using the implementor's model with the read-only-prompt convention
+  (mirrors today's `judges.json`-with-default-judge behavior, synthesis §3.1).
+
+The matrix: any combination of {plugin-default, BYO, disabled} × {worker side,
+inspector side} is supported. "All disabled on both sides" = today's `/goal`
+behavior, reimplemented inside this plugin so it can still benefit from the
+non-1-bit seam (§5.1) and the durable verdict (§5.6) without doing any
+composition work.
+
+### 5.6 What the new seam carries (replacing the lossy bit)
+
+With the plugin owning both sides, the verdict crossing inspection → close is a
+real value, not a flipped flag. Minimum viable shape:
+
+```python
+@dataclass
+class InspectionVerdict:
+    outcome: Literal["passed", "failed", "exhausted", "cancelled"]
+    inspector_results: list[InspectorResult]   # per-inspector vote + notes
+    rationale: str                              # human/agent-readable
+    retry_hint: str | None                      # for the 13b → worker edge
+```
+
+This directly resolves the synthesis REC-1 / REC-2 seeds: `outcome` is the
+distinguishable terminal status, and `inspector_results` carries the content
+that today gets discarded inside wiggum's `remediation_notes`. The `bd close`
+reason becomes derived from `outcome` + `rationale`, not a hardcoded
+"LLM judges passed" string.
+
+### 5.7 Open questions (flagged, not resolved)
+
+- **Default staffing-agent model.** Plugin-default staffing runs per bead — what
+  model? A cheap one (cost) vs the implementor's model (consistency)?
+- **Prompt pool scope.** User-global like UC tools? Per-project? Per-bead-graph?
+  (Affects multi-tenant / multi-repo behavior.)
+- **Disabled-mode inspector panel size.** Today's `judges.json` default is one
+  synthetic judge. Match that, or ship a small fixed panel (e.g. 3) for
+  reliability?
+- **Prompt authoring UX.** TUI like `/judges`? File-drop? Distillation from
+  successful runs? (The pool grows or it stagnates.)
+- **Surfacing method choice.** Pick one and ship (tag match is simplest); or
+  ship hybrid from day one?
+- **Inspector quorum policy.** Today: hardcoded unanimity. Per-bead policy
+  authored by the inspector staffing agent? Per-pool default?
+- **BYO staffing-agent registration.** Reuse the existing agent registry
+  (`register_agents` hook), or a dedicated `register_staffing_agent` hook to
+  keep staffing semantics distinct from general agents?
+
+### Tie to canvas (updates this revision)
+
+The canvas now reflects this thought directly:
+
+- **`plugin_owns_banner`** (top-left): asserts ownership of the full line and
+  the elimination of the 1-bit seam.
+- **`worker_staffing_agent`** + **`inspector_staffing_agent`**: inserted as
+  explicit nodes between the `creation/selection` boxes and the 5-layer
+  composition stacks. Both annotated with the three modes (plugin-default / BYO
+  / disabled). Edges relabeled `8a delegate to` → `8b compose` (worker) and
+  `10a delegate to` → `10b compose` (inspector).
+- **`prompt_pool`**: feeds candidate prompts down to both prompt-slot nodes.
+- **`non_llm_surfacing`**: sits above the pool, ranks/filters into it.
+- **`disabled_fallback`**: hangs off `worker creation/selection` with the
+  "if staffing disabled" edge; loops back to `bead-chain` so the disabled-mode
+  bypass is visible as a complete alternative path.
