@@ -45,3 +45,8 @@ code_puppy/bundled_skills/
 .claude/hooks/ts-hooks/dist/
 
 .json
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
