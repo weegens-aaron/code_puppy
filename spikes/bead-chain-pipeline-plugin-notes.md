@@ -484,3 +484,147 @@ The canvas now reflects this thought directly:
 - **`disabled_fallback`**: hangs off `worker creation/selection` with the
   "if staffing disabled" edge; loops back to `bead-chain` so the disabled-mode
   bypass is visible as a complete alternative path.
+
+---
+
+## Thought 6 — Scope correction: plugin starts at bead-chain; planning is external; worker bypass is fully symmetric with inspector bypass
+
+**Claim captured (two corrections to Thought 5):**
+
+1. **Plugin scope starts at bead-chain.** Steps 1–5 on the canvas
+   (`plan_weaver` → `plan` → `bead_master` → `bead graph`) are **external** to
+   the plugin. The plugin may *supply means* to a planner (prompts, recipes,
+   exported tools) but does **not** own or run planning.
+2. **Worker staffing is bypassable in exactly the same way inspector staffing
+   is.** Thought 5 implied a single fused "disabled mode" combining both
+   defaults. Wrong shape — they are **two independent toggles**, each producing
+   a usable downstream artifact when off (code-puppy as the worker; a fixed
+   judge pool as the inspectors).
+
+### 6.1 The plugin boundary in one diagram
+
+```
+EXTERNAL (not plugin-owned)              │   PLUGIN STARTS HERE
+                                         │
+ user ⇄ plan_weaver → plan               │   bead-chain
+                ↓                        │     ↓
+        bead_master → bead graph ────────→   worker creation/selection
+                                         │     ↓
+                                         │   [worker staffing agent | bypass→code-puppy]
+                                         │     ↓
+                                         │   worker → works
+                                         │     ↓
+                                         │   inspector creation/assignment
+                                         │     ↓
+                                         │   [inspector staffing agent | bypass→fixed judge pool]
+                                         │     ↓
+                                         │   inspector(s) → Inspection finished
+                                         │     ↓
+                                         │   13a passed → bd close, next ready
+                                         │   13b failed → worker (retry)
+```
+
+**What the plugin owns:** every step from bead-chain pulling `bd ready` through
+the structured verdict driving `bd close`. **What it doesn't:** how the bead
+graph got authored. A user (or the existing `bead-planner` agent, or a
+hand-edited DAG, or another tool entirely) is responsible for producing the
+graph that lands in `bd` before bead-chain runs.
+
+### 6.2 What "may supply means, does not own" cashes out as
+
+The plugin can **export** artifacts a planner might consume, without
+owning planning runtime:
+
+- The **prompt pool** (§5.3) is readable by any planner that wants
+  inspector-style critique prompts during decomposition.
+- **UC-forged tools** (Thought 3) are globally discoverable; a planner
+  can call them just as easily as the staffing path can.
+- Any **recipes** for "what a good per-bead `AgentSpec` looks like" can be
+  documented and consumed by planners that want to pre-pin
+  `execution_*` metadata on beads.
+
+None of these create a runtime dependency in the other direction — the plugin
+runs the same regardless of whether the planner used any of them.
+
+**What stays out of scope:**
+
+- Conversation loops with the user (plan_weaver's job).
+- Plan → graph translation logic (bead_master's job).
+- Anything about *what* beads should exist or how they should be decomposed.
+
+This boundary also clarifies the **DBOS question** floating on the canvas
+(`87e6c2b44a4fb220`). DBOS-style durable execution applies to the plugin's
+internal loop — the bead-chain → staffing → work → inspection → close cycle —
+not to the planning phase. Planning is human-driven and inherently resumable
+(the bead graph is the checkpoint). The recoverability question is entirely
+inside the plugin's box.
+
+### 6.3 Symmetric bypass: two toggles, four configurations
+
+Rewriting Thought 5's mode matrix as it actually behaves — **worker side** and
+**inspector side** are fully independent. Each side has three modes
+(plugin-default / BYO / disabled), and disabled on each side has a
+side-specific default:
+
+| Worker side | Inspector side | Behavior |
+|-------------|----------------|----------|
+| plugin-default | plugin-default | Full per-bead composition both sides. The canvas's headline configuration. |
+| plugin-default | disabled | Per-bead worker; fixed judge pool inspects. Useful when inspection style is stable but worker needs vary. |
+| disabled | plugin-default | code-puppy works; per-bead inspector panel grades. **Lowest-risk incremental rollout** — smarter inspection without disturbing the implementor. |
+| disabled | disabled | code-puppy works; fixed judge pool inspects. Closest to today's `/goal` + `judges.json` behavior, but inside the plugin so it still gets the structured verdict (§5.6). |
+| BYO | * | User-supplied worker staffing agent. Inspector side configured independently. |
+| * | BYO | User-supplied inspector staffing agent. Worker side configured independently. |
+
+The earlier Thought 5 §5.5 "disabled-mode fallback" wording was misleading
+because it bundled both bypasses. Reading it now: each bypass independently
+produces its own default. The fused "all disabled = today's `/goal`"
+configuration is just one cell in the matrix (bottom-right).
+
+### 6.4 Bypass mechanics — the flow does not collapse, it short-circuits one box
+
+The critical correctness property: **bypassed branches feed forward into the
+normal pipeline**, they do not loop back early.
+
+- **Worker bypass:** `worker creation/selection` → `code-puppy worker` (skipping
+  the 5-layer staffing stack) → **same inspection step** as the staffed path.
+  The inspection seam (§5.6) still produces a structured verdict.
+- **Inspector bypass:** `inspector creation/assignment` → `fixed judge pool`
+  (skipping the per-inspector composition stack) → **same Inspection finished
+  step**, **same verdict shape**.
+
+So even with both sides bypassed, the plugin still benefits from:
+
+- Owning the seam (no shared `WiggumState.active` boolean to race on).
+- Structured `InspectionVerdict` (§5.6) instead of the 1-bit collapse.
+- Distinguishable `outcome` (no false-positive `bd close --reason "LLM judges
+  passed"` on exhaustion — synthesis §4 fixed at the structural level).
+- No external plugin coupling (no hook-ordering dance — synthesis §2.4).
+
+These benefits come from **plugin ownership of the post-bead-chain pipeline**,
+not from per-bead composition. Per-bead composition is a *capability* layered
+on top; bypass turns it off without losing the seam fix. This is why "disabled
+on both sides" is still strictly better than today's setup, not a regression to
+it.
+
+### 6.5 Open question superseded
+
+Thought 5 §5.7 asked "*Disabled-mode inspector panel size — match today's
+single synthetic judge, or ship a small fixed panel (e.g. 3)?*" That question
+stands but is now scoped to **only the inspector-bypass default**, not to a
+fused fallback. The worker-bypass default is unambiguously "code-puppy with
+built-in tools" (one worker, no panel — the worker side has no panel concept).
+
+### Tie to canvas (updates this revision)
+
+- **`plugin_owns_banner`** rewritten: scope starts at bead-chain; planning
+  external; worker AND inspector each independently bypassable; no wiggum /
+  no /goal / no judges.json **inside the plugin**.
+- **`disabled_fallback`** repurposed to **worker bypass only**, with edge
+  retargeted: instead of looping back to `bead-chain` with
+  *"completes & returns"*, it now flows forward into the `worker` node with
+  *"becomes worker"* — making the symmetry with the inspector bypass explicit.
+- **`inspector_bypass`** added as a peer node: branches off the
+  `inspector_staffing_agent` on the *"if inspector staffing disabled"* edge,
+  flows forward into `inspector(s)` with *"becomes inspector(s)"*.
+- The user-added **`plugin starts here`** marker (pointing at `bead-chain`) is
+  the single source of truth for the scope boundary in the canvas.
