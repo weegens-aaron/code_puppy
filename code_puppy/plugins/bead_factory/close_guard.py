@@ -10,7 +10,7 @@ the bead without any verdict. This module spots the bypass so the
 ``run_shell_command`` hook can block it with a reminder.
 
 Pure functions, no side effects, trivially testable — kept in its own
-module so :mod:`register_callbacks` doesn't grow regex baggage.
+module so the chain driver's wiring stays free of regex baggage.
 """
 
 from __future__ import annotations
@@ -294,12 +294,13 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
 # run_shell_command hook
 # ---------------------------------------------------------------------------
 #
-# Lives here (next to the detector) rather than in ``register_callbacks``
+# Lives here (next to the detector) rather than in the chain driver
 # because the two are one cohesive guard: change one and you'll almost
-# certainly want to glance at the other. The hook is registered by
-# ``register_callbacks`` at module scope — there's no ordering
-# dependency on any other plugin, and the early ``state.is_active()``
-# check makes it a cheap no-op when the chain isn't running.
+# certainly want to glance at the other. In bead_factory this hook is not
+# yet wired — registering it via the plugin entry point is a dedicated
+# downstream bead — but once wired there's no ordering dependency on any
+# other plugin, and the early ``state.is_active()`` check makes it a cheap
+# no-op when the chain isn't running.
 
 
 async def on_run_shell_command(

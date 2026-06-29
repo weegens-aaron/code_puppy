@@ -2,7 +2,7 @@
 
 This module owns the *state transitions*: how to close, revert, enforce
 the single-in_progress invariant, pick the next bead, and arm wiggum
-for the next iteration. The companion :mod:`register_callbacks` module
+for the next iteration. The companion :mod:`chain_driver` module
 owns the *wiring*: slash-command registration, hook registration,
 the hook handlers themselves, CLI flag parsing.
 
@@ -12,7 +12,7 @@ state + same bd database → same output. That makes them safe to call
 from any hook handler in any order without coupling to specific call
 sites.
 
-DO NOT add hook *registration* here. Hooks live in :mod:`register_callbacks`
+DO NOT add hook *registration* here. Hooks live in :mod:`chain_driver`
 so contributors have one obvious place to discover what bead-chain
 listens to.
 """
@@ -34,11 +34,11 @@ try:
     # loop to wiggum's /goal mode — wiggum is a hard prerequisite (see
     # README). We still want this module to *import* cleanly when wiggum is
     # absent so the plugin loader doesn't spew a raw ImportError traceback:
-    # register_callbacks gates every code path that would actually call
+    # chain_driver gates every code path that would actually call
     # wiggum_state behind an availability check, so a None here is never
     # dereferenced. (bead_chain-c87)
     from code_puppy.plugins.wiggum import state as wiggum_state
-except ImportError:  # pragma: no cover - exercised via register_callbacks
+except ImportError:  # pragma: no cover - exercised via chain_driver
     wiggum_state = None  # type: ignore[assignment]
 from .beads import BeadsError, RECOVERABLE_STATUSES, is_excluded_type
 from .beads_reads import (
@@ -386,7 +386,7 @@ def activate_next_bead(
         # surface for unintended side effects. Parent epics may close one
         # session later, but data safety is preserved.
         #
-        # See register_callbacks._on_interactive_turn_end for the detailed
+        # See chain_driver._on_interactive_turn_end for the detailed
         # explanation and the call-site of the per-bead rollup removal.
         rollup_completed_epics()
         emit_success(
