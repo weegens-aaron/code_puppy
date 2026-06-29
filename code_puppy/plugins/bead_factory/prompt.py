@@ -32,14 +32,14 @@ __all__ = [
     "TRIAGE_MARKER",
 ]
 
-# Preamble prepended to the build prompt when bead-chain is resuming a
+# Preamble prepended to the build prompt when bead-factory is resuming a
 # bead that was left in_progress by a previous, errored or cancelled
 # run. The agent must assess current state BEFORE redoing any work —
 # the bead may already be satisfied, in which case it should report
 # what's in place rather than churning. Kept as a module constant so
 # the wording is easy to tune in one place. DRY.
 _RECOVERY_PREAMBLE: str = (
-    "⚠️ RECOVERY MODE: a previous bead-chain run did not finish this bead.\n"
+    "⚠️ RECOVERY MODE: a previous bead-factory run did not finish this bead.\n"
     "You are picking up partial work — the bead is already claimed and in_progress.\n"
     "\n"
     "Before doing any new work, assess the current state of the repo:\n"
@@ -61,7 +61,7 @@ _RECOVERY_PREAMBLE: str = (
 
 # Sentinel marker injected into a bug bead's description when an agent
 # files it mid-chain via the bug-discovery protocol (see
-# :data:`_BUG_DISCOVERY_PROTOCOL`). When a *future* /bead-chain iteration
+# :data:`_BUG_DISCOVERY_PROTOCOL`). When a *future* /bead-factory iteration
 # claims that bug, :func:`is_triaged_bug` spots the marker and
 # :func:`format_bead_as_build` swaps the standard build prompt for the
 # triage-verification preamble (:data:`_TRIAGE_VERIFY_PREAMBLE`).
@@ -74,18 +74,18 @@ _RECOVERY_PREAMBLE: str = (
 #
 # UPDATE (coverage-audit FB-7): ``labels`` is now *verified present* on
 # the ``bd ready``/``bd show`` JSON for this bd build, so the second
-# bullet's caveat no longer holds. A real ``bead-chain:triaged`` label
+# bullet's caveat no longer holds. A real ``bead-factory:triaged`` label
 # would be the cleaner home for this marker. We are NOT migrating yet —
-# the sentinel is wire-stable across older bead-chain versions and a
+# the sentinel is wire-stable across older bead-factory versions and a
 # migration needs a compatibility window. See the recommendation in
-# ``notes/analysis/bead-chain-coverage/FB-7-triage-label-recommendation.md``.
+# ``notes/analysis/bead-factory-coverage/FB-7-triage-label-recommendation.md``.
 #
 # Keep this string stable across releases: changing it would orphan
-# every triaged bug filed by older bead-chain versions, silently
+# every triaged bug filed by older bead-factory versions, silently
 # downgrading them to the normal-work prompt path. If we ever need to
 # evolve the format, add a second sentinel and have
 # :func:`is_triaged_bug` recognise both.
-TRIAGE_MARKER: str = "[bead-chain:triaged]"
+TRIAGE_MARKER: str = "[bead-factory:triaged]"
 
 # Preamble used when the claimed bead is a bug that was filed mid-chain
 # by a previous bead's agent (detected via :data:`TRIAGE_MARKER`).
@@ -172,7 +172,7 @@ _BUG_DISCOVERY_PROTOCOL: str = (
     "    --description='<what you saw, repro steps, suspected cause>' \\\n"
     "    --priority=2\n"
     "  Then continue with your original bead. Priority-1 routing will\n"
-    "  pick the bug up in a later /bead-chain iteration.\n"
+    "  pick the bug up in a later /bead-factory iteration.\n"
     "\n"
     f"BLOCKING bug — file with triage marker, fix inline, finish work:\n"
     f"  bd create --type=bug --title='<short title>' \\\n"
@@ -199,7 +199,7 @@ def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
     """True if ``bead``'s description carries the :data:`TRIAGE_MARKER`.
 
     Used by :func:`format_bead_as_build` to switch a bug bead claimed by
-    a future /bead-chain iteration from the normal-work prompt to the
+    a future /bead-factory iteration from the normal-work prompt to the
     triage-verification preamble (:data:`_TRIAGE_VERIFY_PREAMBLE`).
 
     The check is intentionally narrow:
@@ -257,7 +257,7 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     prompt is unchanged.
 
     Right after the acceptance block (coverage-audit gap FB-5,
-    ``bead_chain-vmo``), bead-chain runs ``bd lint <id>`` on the claim
+    ``bead_chain-vmo``), bead-factory runs ``bd lint <id>`` on the claim
     path and folds any missing-template-section warnings into a
     ``## Template Lint Warnings`` block (:func:`_format_lint_warnings_block`).
     The acceptance block shows what's *present*; this shows what the

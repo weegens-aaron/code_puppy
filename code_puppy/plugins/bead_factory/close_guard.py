@@ -1,6 +1,6 @@
-"""Detect agent attempts to close a bead while bead-chain is in flight.
+"""Detect agent attempts to close a bead while bead-factory is in flight.
 
-bead-chain delegates the close decision to the LLM judges: a bead
+bead-factory delegates the close decision to the LLM judges: a bead
 is only closed once the judges agree the build is satisfied, via
 :func:`bd close` invoked by the plugin itself (see ``beads.close``).
 
@@ -251,7 +251,7 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
     Returns ``None`` for unrelated commands and for legitimate
     ``bd update --claim`` / ``--status=in_progress`` calls. The check
     is intentionally lenient about *which* bead is being closed: while
-    bead-chain is active, the agent has no business closing any bead
+    bead-factory is active, the agent has no business closing any bead
     — that's the chain's job.
     """
     # Cheap pre-filter: skip regex work entirely when the command can't
@@ -313,7 +313,7 @@ async def on_run_shell_command(
 
     Returns ``None`` (allow) unless **both** conditions hold:
 
-      * bead-chain is currently active, AND
+      * bead-factory is currently active, AND
       * the command would close a bead.
 
     In that case returns a ``{"blocked": True, ...}`` dict whose
@@ -332,9 +332,9 @@ async def on_run_shell_command(
 
     current = state.get_state().current_bead_id or "the active bead"
     reminder = (
-        f"🛑 bead-chain blocked `{match.pattern_name}`.\n"
+        f"🛑 bead-factory blocked `{match.pattern_name}`.\n"
         f"  {match.description}\n"
-        f"  bead-chain is currently driving bead {current} through "
+        f"  bead-factory is currently driving bead {current} through "
         f"the build loop. The bead will be closed automatically "
         f"once the LLM judges sign off — do NOT close it yourself.\n"
         f"  Keep working on the task. If you believe the bead is "

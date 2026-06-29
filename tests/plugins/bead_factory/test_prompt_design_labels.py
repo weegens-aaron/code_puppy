@@ -41,9 +41,9 @@ def _base_bead(**extra) -> dict:
 
 
 def test_present_labels_rendered_in_metadata():
-    bead = _base_bead(labels=["bead-chain", "prompt", "remediation"])
+    bead = _base_bead(labels=["bead-factory", "prompt", "remediation"])
     out = prompt.format_bead_as_build(bead)
-    assert "- Labels: bead-chain, prompt, remediation" in out
+    assert "- Labels: bead-factory, prompt, remediation" in out
 
 
 def test_labels_line_is_inside_metadata_block():
@@ -74,7 +74,7 @@ def test_whitespace_only_labels_no_line():
 
 
 def test_non_list_labels_no_line():
-    out = prompt.format_bead_as_build(_base_bead(labels="bead-chain"))
+    out = prompt.format_bead_as_build(_base_bead(labels="bead-factory"))
     assert "- Labels:" not in out
 
 

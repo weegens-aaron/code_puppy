@@ -15,7 +15,7 @@ from __future__ import annotations
 from code_puppy.plugins.bead_factory import state
 
 
-def _dirty_the_singleton() -> state.BeadChainState:
+def _dirty_the_singleton() -> state.ChainState:
     """Scribble non-default values onto the shared singleton."""
     s = state.get_state()
     s.active = True
@@ -30,7 +30,7 @@ def test_reset_returns_all_fields_to_defaults():
     s = _dirty_the_singleton()
     s.reset()
 
-    fresh = state.BeadChainState()
+    fresh = state.ChainState()
     assert s.active == fresh.active is False
     assert s.current_bead == fresh.current_bead is None
     assert s.completed_count == fresh.completed_count == 0

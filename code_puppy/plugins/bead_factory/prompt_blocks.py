@@ -27,12 +27,12 @@ _EPIC_EXCERPT_LIMIT: int = 280
 
 # --- bd memory layer <-> host Kennel policy (coverage-audit gap FB-6) -------
 #
-# POLICY (one line): bead-chain surfaces *bd's* project-scoped memory
+# POLICY (one line): bead-factory surfaces *bd's* project-scoped memory
 # layer (``bd remember``/``bd memories``, which travels with the Dolt DB)
 # into the build prompt and nudges agents to write back to it; it does NOT
 # bridge to the host runtime's Kennel — the two are deliberately separate
 # (bd memories = this project's shared facts; Kennel = the host agent's
-# cross-repo diary), and coupling them would tie bead-chain to a
+# cross-repo diary), and coupling them would tie bead-factory to a
 # host-specific backend. We document the split rather than bridge it.
 #
 # Caps for the persistent-memory digest injected into the build prompt.
@@ -185,10 +185,10 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
     """Return a ``- Labels: a, b, c`` metadata line, or ``[]`` when absent.
 
     ``labels`` is a list of strings on the ``bd ready --json`` record
-    bead-chain already hands to :func:`format_bead_as_build` (verified
+    bead-factory already hands to :func:`format_bead_as_build` (verified
     present on this bd build — coverage-audit gap FB-7, anatomy #3), but
     the formatter historically never read it. Labels are the bead's
-    cross-cutting tags (e.g. ``bead-chain``, ``prompt``, ``security``) —
+    cross-cutting tags (e.g. ``bead-factory``, ``prompt``, ``security``) —
     cheap, high-signal context for framing the work.
 
     Returns a single-element list so the caller can blindly ``extend()``
@@ -211,7 +211,7 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
     return [f"- Labels: {', '.join(labels)}"]
 
 
-# Non-gating, context-bearing edge types bead-chain surfaces in the build
+# Non-gating, context-bearing edge types bead-factory surfaces in the build
 # prompt (coverage-audit gap FB-11, ``bead_chain-n57``; dependency#2).
 #
 # These six edges carry *context* the working agent (and the LLM judges)
@@ -219,7 +219,7 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
 # (``caused-by``), validating tests (``validates``), and plain related
 # work (``related`` / ``relates-to`` / ``tracks``). The field guide
 # classifies all six as Informational — they do NOT gate readiness, and
-# bead-chain deliberately keeps it that way (see
+# bead-factory deliberately keeps it that way (see
 # :data:`beads.BLOCKING_DEP_TYPES`). Surfacing them here is purely about
 # context; gating behaviour is untouched.
 #
@@ -372,7 +372,7 @@ def _format_acceptance_criteria_block(bead: dict[str, Any]) -> str:
     """Return a ``## Acceptance Criteria`` prompt section, or ``""`` if absent.
 
     ``acceptance_criteria`` is already a key on the ``bd ready --json``
-    record bead-chain hands to :func:`format_bead_as_build`, but the
+    record bead-factory hands to :func:`format_bead_as_build`, but the
     formatter historically never read it — so the LLM judges verified
     completion against a contract the prompt never showed the agent
     (coverage-audit gap FB-2, ``bead_chain-2zx``).

@@ -1,4 +1,4 @@
-"""State for the bead-chain plugin.
+"""State for the bead-factory plugin.
 
 Mirrors a tiny-singleton pattern. Behavior lives in
 ``chain_driver.py`` and ``lifecycle.py`` — this module is a dumb data box.
@@ -7,7 +7,7 @@ Thread-safety (known limitation)
 --------------------------------
 The singleton is **not** thread-safe: ``_STATE`` is a bare module-level
 instance with no lock around its mutators. This is deliberate and safe in
-practice. bead-chain's coordinating hooks (command / turn-end /
+practice. bead-factory's coordinating hooks (command / turn-end /
 turn-cancel) all fire on code_puppy's single interactive event loop, and
 they never run concurrently with one another.
 
@@ -18,7 +18,7 @@ then ``activate_next_bead`` — mutates this box from the worker thread.
 There is still no contended writer: the two calls are ``await``ed
 *sequentially* (at most one worker thread is ever in flight), and the
 turn-end hook does not re-enter while its own thread is running, so the
-state has exactly one mutator at any instant. If bead-chain ever fans
+state has exactly one mutator at any instant. If bead-factory ever fans
 these calls out concurrently, or grows an independent background thread
 that mutates state, this box must gain a lock (or move to per-run
 dependency injection). Until then, a lock would be pure YAGNI ceremony.
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 __all__ = [
-    "BeadChainState",
+    "ChainState",
     "get_state",
     "is_active",
     "reset",
@@ -40,7 +40,7 @@ __all__ = [
 
 
 @dataclass
-class BeadChainState:
+class ChainState:
     """Whether the chain is engaged, and what bead it's currently chewing on.
 
     We hold the **full bead dict**, not just its id, so callers can peek
@@ -54,7 +54,7 @@ class BeadChainState:
     completed_count: int = 0
     # Optional safety brake: stop the chain after this many beads have
     # been completed in the current run. None = no cap (run forever).
-    # Set by /bead-chain --max=N; reset to None on stop().
+    # Set by /bead-factory --max=N; reset to None on stop().
     max_iterations: int | None = None
 
     @property
@@ -74,7 +74,7 @@ class BeadChainState:
         self.active = True
         self.current_bead = None
         # completed_count is reset on every fresh start() so each
-        # /bead-chain run reports its own tally.
+        # /bead-factory run reports its own tally.
         self.completed_count = 0
 
     def stop(self) -> None:
@@ -108,10 +108,10 @@ class BeadChainState:
         self.max_iterations = None
 
 
-_STATE = BeadChainState()
+_STATE = ChainState()
 
 
-def get_state() -> BeadChainState:
+def get_state() -> ChainState:
     return _STATE
 
 

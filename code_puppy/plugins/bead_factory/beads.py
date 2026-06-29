@@ -66,7 +66,7 @@ DEFAULT_TIMEOUT = 15.0
 DEFAULT_BD_BIN = "bd"
 
 # Bead ids are attacker-reachable strings: they come from bd's own JSON
-# output, but bead-chain also accepts them from CLI args and recovery
+# output, but bead-factory also accepts them from CLI args and recovery
 # flows where a crafted value could slip through. List-form
 # ``subprocess.run`` already blocks *shell* injection, but a value
 # bristling with flags/whitespace/dashes can still confuse bd's own
@@ -118,7 +118,7 @@ def _retry_backoff(attempt: int) -> float:
     return min(_RETRY_BACKOFF_BASE * (2 ** (attempt - 1)), _RETRY_BACKOFF_CEILING)
 
 
-# Bead types that /bead-chain must never try to drive directly.
+# Bead types that /bead-factory must never try to drive directly.
 # These are container / handle types: they organise or gate *other*
 # work and have no code work of their own, so handing one to the build loop
 # produces a bead that can't be completed — close_guard then refuses
@@ -200,7 +200,7 @@ def is_recurring_epic(bead: dict[str, Any] | None) -> bool:
 
 
 def is_excluded_type(bead: dict[str, Any] | None) -> bool:
-    """True if ``bead`` is a container type bead-chain must never drive.
+    """True if ``bead`` is a container type bead-factory must never drive.
 
     Defence-in-depth companion to the server-side ``--exclude-type``
     filter we pass to ``bd``. The CLI flag *should* keep epics out of
@@ -237,7 +237,7 @@ BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks", "waits-for")
 SATISFIED_BLOCKER_STATUSES: frozenset[str] = frozenset({"closed"})
 
 
-# bd lifecycle status strings bead-chain reasons about by name. The full
+# bd lifecycle status strings bead-factory reasons about by name. The full
 # set lives in `bd statuses`; we only name the ones the chain actually
 # inspects so a typo can't silently break a status comparison.
 IN_PROGRESS_STATUS: str = "in_progress"

@@ -1,4 +1,4 @@
-"""Mutating ``bd`` calls + epic/gate/lint housekeeping for bead-chain.
+"""Mutating ``bd`` calls + epic/gate/lint housekeeping for bead-factory.
 
 The write half of the original monolithic ``beads.py`` (bead_chain-7xv):
 state mutations (``claim`` / ``revert_to_open`` / ``close``) plus the
@@ -51,7 +51,7 @@ def claim(bead_id: str) -> None:
 def revert_to_open(bead_id: str) -> None:
     """Push a claimed bead back to ``open``, re-entering the ready queue.
 
-    The clean inverse of :func:`claim`. Used by bead-chain to unwind
+    The clean inverse of :func:`claim`. Used by bead-factory to unwind
     the in_progress state when:
 
     * the user cancels a chain (Ctrl+C / runtime cancel) — work isn't
@@ -83,7 +83,7 @@ def has_epic_in_progress() -> bool:
     """Return ``True`` if at least one epic is currently in_progress.
 
     Wraps ``bd list --type=epic --status=in_progress --json``. Used to
-    decide whether bead-chain needs to start a new epic or if one is
+    decide whether bead-factory needs to start a new epic or if one is
     already being tracked as active.
     """
     raw = _beads._run_bd("list", "--type=epic", "--status=in_progress", "--json")
@@ -203,7 +203,7 @@ def _close_non_recurring(candidates: list[dict[str, Any]]) -> list[dict[str, Any
         if not epic_id:
             continue
         try:
-            close(epic_id, reason="all children complete (bead-chain rollup)")
+            close(epic_id, reason="all children complete (bead-factory rollup)")
         except BeadsError:
             # Soft-fail this one; rollup is courtesy cleanup, not core.
             continue
@@ -274,7 +274,7 @@ def check_gates() -> dict[str, int]:
 
     Wraps ``bd gate check --json``. Resolvable gate types — ``timer``,
     ``gh:run``, ``gh:pr``, ``bead`` — keep their *target* issues out of
-    ``bd ready`` until the gate closes. bead-chain never polls these on
+    ``bd ready`` until the gate closes. bead-factory never polls these on
     its own, so a gate that has *become* satisfied can sit closeable-but-
     open and strand its target, stopping the chain short of ready-
     pending-poll work. Asking bd to re-evaluate every open gate closes
@@ -331,7 +331,7 @@ def lint_warnings(bead_id: str) -> list[str]:
     issue for the *recommended* sections its type requires (e.g. a
     ``task`` should carry ``## Acceptance Criteria``; an ``epic`` should
     carry ``## Success Criteria``) and reports the missing ones. The
-    coverage audit (FB-5, ``bead_chain-vmo``) found bead-chain drove
+    coverage audit (FB-5, ``bead_chain-vmo``) found bead-factory drove
     beads straight off ``bd ready`` without ever consulting this
     contract, so a bead that lost its ``## Acceptance Criteria`` to a
     ``--graph`` import would be graded by the LLM judges against a

@@ -128,7 +128,7 @@ def _fan_out_gate_verdict(
     """Evaluate ``bead_id``'s molecule fan-out gate, honoring its mode.
 
     Beads with ``waits_for: children-of(spawner)`` are invisible to
-    ``bd blocked`` (bead_chain-9sc upstream bug), so bead-chain evaluates
+    ``bd blocked`` (bead_chain-9sc upstream bug), so bead-factory evaluates
     the gate itself at claim time. The verdict honors the aggregation
     mode (FB-13, bead_chain-y0s):
 

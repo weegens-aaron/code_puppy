@@ -1,4 +1,4 @@
-"""Bead lifecycle helpers — the state-transition brain of bead-chain.
+"""Bead lifecycle helpers — the state-transition brain of bead-factory.
 
 This module owns the *state transitions*: how to close, revert, enforce
 the single-in_progress invariant, pick the next bead, and arm the build
@@ -13,7 +13,7 @@ from any hook handler in any order without coupling to specific call
 sites.
 
 DO NOT add hook *registration* here. Hooks live in :mod:`chain_driver`
-so contributors have one obvious place to discover what bead-chain
+so contributors have one obvious place to discover what bead-factory
 listens to.
 """
 
@@ -30,7 +30,7 @@ from code_puppy.messaging import (
 from . import state
 
 try:
-    # bead-chain is a queue driver that delegates the LLM-judged completion
+    # bead-factory is a queue driver that delegates the LLM-judged completion
     # loop to the build loop. Post-merge that loop lives IN THIS
     # package — its state is the in-package :mod:`build_state` module (no more
     # cross-import of ``code_puppy.plugins.wiggum``). We keep the defensive
@@ -80,7 +80,7 @@ __all__ = [
 # Statuses that mark a picked bead as *already in flight* — i.e. residue
 # from a prior run that crashed/cancelled before the LLM judges could
 # rule. A bead in any of these was claimed (or hooked) but not closed,
-# so bead-chain *recovers* it (re-drives with the recovery preamble)
+# so bead-factory *recovers* it (re-drives with the recovery preamble)
 # rather than re-claiming. Sourced from :data:`beads.RECOVERABLE_STATUSES`
 # so the recovery query and the recovery-vs-fresh decision can never
 # drift apart. See :func:`is_recovery_bead`.
@@ -88,7 +88,7 @@ _RECOVERY_STATUSES: frozenset[str] = frozenset(s.lower() for s in RECOVERABLE_ST
 
 
 def is_recovery_bead(bead: dict[str, Any] | None) -> bool:
-    """True if ``bead`` was already in flight when bead-chain picked it.
+    """True if ``bead`` was already in flight when bead-factory picked it.
 
     The deliberate one-bead-at-a-time discipline means we should never
     see an in_progress (or hooked) bead at chain-start or between
@@ -143,7 +143,7 @@ def _unblocked_strands() -> list[dict[str, Any]]:
         blockers = open_blocker_ids(bead_id)
         if blockers:
             emit_warning(
-                f"bead-chain: stranded in_progress bead {bead_id} is blocked "
+                f"bead-factory: stranded in_progress bead {bead_id} is blocked "
                 f"by open issue(s) [{', '.join(blockers)}] -- refusing to re-drive "
                 "it and reverting to open (work-time blocks must be respected, "
                 "not just at close-time)."
@@ -196,7 +196,7 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
         items = _unblocked_strands()
     except BeadsError as exc:
         emit_warning(
-            f"🔗 bead-chain: couldn't enumerate in_progress beads ({exc}); "
+            f"🔗 bead-factory: couldn't enumerate in_progress beads ({exc}); "
             "continuing without invariant check."
         )
         return None
@@ -211,7 +211,7 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
     extra_ids = [str(b.get("id", "?")) for b in extras]
     head_id = str(head.get("id", "?"))
     emit_warning(
-        f"⚠️ bead-chain: found {len(items)} in_progress beads (residue from "
+        f"⚠️ bead-factory: found {len(items)} in_progress beads (residue from "
         f"a hard crash or pre-fix session). Recovering {head_id} first; "
         f"the rest will be picked up one-at-a-time via the recovery tier: "
         f"{', '.join(extra_ids)}"
@@ -269,7 +269,7 @@ def pick_next_bead(
         stranded = workable[0]
         bead_id = str(stranded.get("id", "<unknown>"))
         emit_warning(
-            f"bead-chain: found stranded in_progress bead {bead_id} -- "
+            f"bead-factory: found stranded in_progress bead {bead_id} -- "
             "recovering before picking new work."
         )
         return stranded
@@ -277,14 +277,14 @@ def pick_next_bead(
     blocking = next_blocking_bug()
     if blocking is not None and not _reject_if_blocked(blocking, "blocking bug"):
         bead_id = str(blocking.get("id", "<unknown>"))
-        emit_info(f"bead-chain: blocking bug detected -> prioritising {bead_id}")
+        emit_info(f"bead-factory: blocking bug detected -> prioritising {bead_id}")
         return blocking
 
     epic_id = extract_parent_epic_id(just_closed)
     if epic_id:
         sibling = next_ready_in_epic(epic_id)
         if sibling is not None and not _reject_if_blocked(sibling, "epic affinity"):
-            emit_info(f"bead-chain: epic affinity -> staying inside {epic_id}")
+            emit_info(f"bead-factory: epic affinity -> staying inside {epic_id}")
             return sibling
 
     nxt = next_ready()
@@ -309,7 +309,7 @@ def _reject_if_blocked(bead: dict[str, Any] | None, tier: str) -> bool:
     if not blockers:
         return False
     emit_warning(
-        f"bead-chain: {tier} candidate {bead_id} has open blocker(s) "
+        f"bead-factory: {tier} candidate {bead_id} has open blocker(s) "
         f"[{', '.join(blockers)}] -- refusing to claim it (bd ready leaked a "
         "blocked bead; respecting work-time blocks anyway)."
     )
@@ -339,7 +339,7 @@ def activate_next_bead(
     s = state.get_state()
     if s.max_iterations is not None and s.completed_count + 1 > s.max_iterations:
         emit_success(
-            f"🛑 bead-chain: --max={s.max_iterations} cap reached "
+            f"🛑 bead-factory: --max={s.max_iterations} cap reached "
             f"(closed {s.completed_count} bead(s) this run). Stopping. Good boy!"
         )
         state.stop()
@@ -348,7 +348,7 @@ def activate_next_bead(
     try:
         bead = pick_next_bead(just_closed)
     except BeadsError as exc:
-        emit_warning(f"🔗 bead-chain stopping — `bd ready` failed: {exc}")
+        emit_warning(f"🔗 bead-factory stopping — `bd ready` failed: {exc}")
         state.stop()
         return None
 
@@ -357,7 +357,7 @@ def activate_next_bead(
         # the chain done, ask bd to re-evaluate every open gate. Resolvable
         # gate types (timer / gh:run / gh:pr / bead) keep their targets out
         # of `bd ready` until the gate closes, and nothing else in
-        # bead-chain pokes them — so an "empty" queue might just be waiting
+        # bead-factory pokes them — so an "empty" queue might just be waiting
         # on a now-satisfied gate. If any gate resolves, its target re-opens
         # and we re-probe the ready queue for one more iteration. Soft-fails
         # (see probe_resolved_gates) so a flaky `bd gate` never halts us.
@@ -365,7 +365,7 @@ def activate_next_bead(
             try:
                 bead = pick_next_bead(just_closed)
             except BeadsError as exc:
-                emit_warning(f"🔗 bead-chain stopping — `bd ready` failed: {exc}")
+                emit_warning(f"🔗 bead-factory stopping — `bd ready` failed: {exc}")
                 state.stop()
                 return None
 
@@ -391,7 +391,7 @@ def activate_next_bead(
         # explanation and the call-site of the per-bead rollup removal.
         rollup_completed_epics()
         emit_success(
-            f"bead-chain: no more ready beads. "
+            f"bead-factory: no more ready beads. "
             f"Closed {state.get_state().completed_count} this run. Good boy!"
         )
         state.stop()
@@ -407,7 +407,7 @@ def activate_next_bead(
     if is_excluded_type(bead):
         bead_id = str(bead.get("id", "<unknown>"))
         emit_warning(
-            f"🚫 bead-chain refused to activate {bead_id}: it's an excluded "
+            f"🚫 bead-factory refused to activate {bead_id}: it's an excluded "
             f"container type ({bead.get('issue_type', '?')}). "
             "An upstream filter leaked an epic into the chain — this is a bug."
         )
@@ -445,7 +445,7 @@ def activate_next_bead(
     blockers = open_blocker_ids(bead_id, full_bead)
     if blockers:
         emit_warning(
-            f"bead-chain refused to activate {bead_id}: it has open "
+            f"bead-factory refused to activate {bead_id}: it has open "
             f"blocker(s) [{', '.join(blockers)}]. Respecting work-time blocks "
             "at claim time, not just at close. Stopping chain."
         )
@@ -465,7 +465,7 @@ def activate_next_bead(
     fan_out = _fan_out_gate_verdict(bead_id, full_bead)
     if fan_out.blocked:
         emit_warning(
-            f"bead-chain refused to activate {bead_id}: it has an unsatisfied "
+            f"bead-factory refused to activate {bead_id}: it has an unsatisfied "
             "fan-out gate (waits_for: children-of(...) with unclosed spawned "
             "children). Stopping chain to avoid driving work that isn't ready yet."
         )
@@ -505,7 +505,7 @@ def activate_next_bead(
         # There is an unavoidable window between pick_next_bead() reading
         # the ready queue (`bd ready` / `bd list`) and this claim() call
         # flipping the bead to in_progress. In that gap a *different* agent
-        # — another bead-chain on another machine, a human in the bd UI,
+        # — another bead-factory on another machine, a human in the bd UI,
         # CI — can claim the very same bead. pick/claim is read-then-write,
         # not a single atomic compare-and-swap, so two drivers can both see
         # the bead "ready" and race for it.
@@ -532,11 +532,11 @@ def activate_next_bead(
         try:
             claim(bead_id)
         except BeadsError as exc:
-            emit_warning(f"🔗 bead-chain couldn't claim {bead_id}: {exc} — stopping.")
+            emit_warning(f"🔗 bead-factory couldn't claim {bead_id}: {exc} — stopping.")
             state.stop()
             return None
     # Recovery beads are already in_progress — skip the redundant claim
-    # call (see handle_bead_chain_command for the same rationale).
+    # call (see handle_bead_factory_command for the same rationale).
 
     state.get_state().current_bead = bead
 
@@ -553,7 +553,7 @@ def activate_next_bead(
     build_state.start(build_prompt)
 
     action = "recovered" if recovery else "claimed"
-    emit_info(f"🔗 bead-chain {action} {bead_id} — {bead.get('title', '')}")
+    emit_info(f"🔗 bead-factory {action} {bead_id} — {bead.get('title', '')}")
     return {
         "prompt": build_prompt,
         "clear_context": True,

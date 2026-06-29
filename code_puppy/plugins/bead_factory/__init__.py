@@ -5,11 +5,11 @@ self-contained plugin:
 
 * the **build loop** — the build-continuation policy and the build-completion
   *inspector* orchestration (the ``/inspectors`` pane, formerly "judges"), and
-* the **bead-chain driver** — a ``bd ready`` queue driver that chains beads
+* the **bead-factory driver** — a ``bd ready`` queue driver that chains beads
   through the build loop one at a time.
 
 Both subsystems now live directly in this package's flat namespace
-(``code_puppy.plugins.bead_factory.*``) — the bead-chain code is no longer a
+(``code_puppy.plugins.bead_factory.*``) — the bead-factory code is no longer a
 separate plugin. The unrelated standalone ``wiggum`` plugin happens to remain
 installed as independent legacy code, but bead_factory neither imports it nor
 shares its command/config keys.
@@ -32,7 +32,7 @@ imports to wire everything up.
 # single-line string literal that is the ONLY such assignment in this file) is
 # part of the contract -- keep it greppable and keep it unique.
 #
-# Derived from the merged sources: wiggum (unversioned) and bead-chain 0.2.1.
+# Derived from the merged sources: wiggum (unversioned) and bead-factory 0.2.1.
 __version__ = "0.2.1"
 
 __all__ = ["__version__"]

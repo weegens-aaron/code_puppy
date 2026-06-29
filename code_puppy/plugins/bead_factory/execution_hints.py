@@ -6,7 +6,7 @@ small, *unenforced* execution vocabulary in each bead's free-form
 ``execution_agent_type``, ``execution_model``, ``execution_effort`` and
 ``execution_mode`` (set via ``bd update --set-metadata k=v``). bd does
 **not** special-case them; they are a shared contract between bead
-authors and orchestrators. bead-chain historically read **none** of
+authors and orchestrators. bead-factory historically read **none** of
 them, so an author could not shape even the single build pass the
 chain runs per bead.
 
@@ -19,7 +19,7 @@ own knobs, right before the build loop is armed:
     execution_agent_type → agent select       (config.set_default_agent)
 
 ``execution_parallel_group`` and ``execution_mode`` are deliberately
-**not** acted on: bead-chain is a one-bead-at-a-time serial driver
+**not** acted on: bead-factory is a one-bead-at-a-time serial driver
 (single-in_progress invariant), so parallel grouping is meaningless and
 the run mode is always ``build``. They — and any other key — fall through
 the "unknown keys ignored" path.
@@ -40,7 +40,7 @@ Design notes
   ``/agent`` mid-session. If per-bead isolation is ever wanted that's a
   separate, larger feature.
 * **``bd ready`` omits ``metadata``.** Verified on this bd build: the
-  ``bd ready --json`` record bead-chain drives with does *not* carry a
+  ``bd ready --json`` record bead-factory drives with does *not* carry a
   top-level ``metadata`` field, but ``bd show <id> --json`` does (parsed
   to a dict). So :func:`_resolve_metadata` uses the cached dict's
   ``metadata`` when present and otherwise re-fetches via :func:`beads.show`.
@@ -136,7 +136,7 @@ def extract_execution_hints(metadata: Any) -> dict[str, str]:
 def _resolve_metadata(bead: dict[str, Any]) -> Any:
     """Return the bead's raw ``metadata`` field, re-fetching if needed.
 
-    ``bd ready --json`` (the record bead-chain drives with) omits
+    ``bd ready --json`` (the record bead-factory drives with) omits
     ``metadata``; ``bd show <id> --json`` carries it. So:
 
     * if the cached dict already has a ``metadata`` key (e.g. it came
@@ -167,7 +167,7 @@ def apply_execution_hints(bead: dict[str, Any] | None) -> list[str]:
     Reads ``execution_effort`` / ``execution_model`` / ``execution_agent_type``
     from the bead's free-form ``metadata`` and maps each onto code-puppy's
     serial knobs (reasoning effort / model select / agent select) so they
-    shape the single build pass bead-chain runs for this bead.
+    shape the single build pass bead-factory runs for this bead.
 
     Returns a list of human-readable ``"label → value"`` strings naming
     what was applied (for the caller to log); ``[]`` means nothing
@@ -211,7 +211,7 @@ def apply_execution_hints(bead: dict[str, Any] | None) -> list[str]:
             # caught — they signal a bug in the contract, not a bad hint, and
             # should surface loudly rather than be silently swallowed.
             emit_warning(
-                f" bead-chain: ignoring {key}={value!r} — couldn't set {label}: {exc}"
+                f" bead-factory: ignoring {key}={value!r} — couldn't set {label}: {exc}"
             )
             continue
         applied.append(f"{label} → {value}")

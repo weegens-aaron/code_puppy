@@ -1,4 +1,4 @@
-"""Read-only ``bd`` queries for bead-chain (queue waterfall + introspection).
+"""Read-only ``bd`` queries for bead-factory (queue waterfall + introspection).
 
 This module is one of two domain splits carved out of the original
 monolithic ``beads.py`` (bead_chain-7xv): it owns every **read** path —
@@ -113,7 +113,7 @@ def list_in_progress() -> list[dict[str, Any]]:
     **Client-side epic filter.** We pass ``--exclude-type=epic`` to bd,
     *and* re-filter the returned list via :func:`is_excluded_type`.
     This is not paranoia — the server-side flag has been observed to
-    leak epics through in production, which caused bead-chain to try
+    leak epics through in production, which caused bead-factory to try
     closing an epic (which fails with 'open child issue(s)') and halt
     the chain. Belt-and-suspenders here is the difference between a
     silent foot-gun and a guaranteed invariant.
@@ -201,7 +201,7 @@ def list_recoverable_strands() -> list[dict[str, Any]]:
 def next_in_progress() -> dict[str, Any] | None:
     """Return the first in_progress non-epic bead, or ``None``.
 
-    Used by bead-chain to detect *stranded* work from a previous run
+    Used by bead-factory to detect *stranded* work from a previous run
     that errored or was cancelled before the LLM judges could rule.
     The deliberate one-bead-at-a-time discipline (no token firehose,
     GasTown-style steady progress) means there should be **at most
@@ -396,12 +396,12 @@ def is_pinned(bead_id: str) -> bool:
 
     Re-fetches via :func:`show` rather than trusting a cached bead dict:
     the hazard this guards against is a bead that was ``open`` when
-    bead-chain claimed it but got flipped to ``pinned`` *mid-flight* by
+    bead-factory claimed it but got flipped to ``pinned`` *mid-flight* by
     another agent/tool. The cached ``current_bead`` still says
     ``in_progress`` (or ``open``); only a fresh read reveals the pin.
 
     Why it matters: closing a ``pinned`` bead **requires ``--force``**
-    (field guide §III), and bead-chain's :func:`close` never passes it.
+    (field guide §III), and bead-factory's :func:`close` never passes it.
     So a pinned bead reaching ``close()`` would fail and halt the whole
     loop — the same family of stall as the epic-close-fail hazard. The
     caller (:func:`lifecycle.close_current_bead_success`) checks this
@@ -430,7 +430,7 @@ def is_pinned(bead_id: str) -> bool:
 def next_blocking_bug() -> dict[str, Any] | None:
     """Return the top ready *blocking* bug, or ``None`` if none exist.
 
-    A 'blocking bug' for bead-chain's purposes is a bead where:
+    A 'blocking bug' for bead-factory's purposes is a bead where:
 
     * ``issue_type`` is in :data:`BLOCKING_BUG_TYPES`, AND
     * ``dependent_count > 0`` — i.e. at least one other bead depends on
@@ -520,7 +520,7 @@ def memories() -> dict[str, str]:
     """Return bd's persistent memories as a ``{key: insight}`` dict.
 
     Bridges bd's memory layer (``bd remember`` / ``bd memories`` /
-    ``bd prime``'s '## Persistent Memories' section) into bead-chain so a
+    ``bd prime``'s '## Persistent Memories' section) into bead-factory so a
     freshly-spawned working agent starts warm instead of cold
     (coverage-audit gap FB-6, ``bead_chain-ndt``).
 

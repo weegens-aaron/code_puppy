@@ -1,11 +1,11 @@
 """bead_factory chain driver: the bead -> build -> close -> next loop.
 
-The queue driver handles ``--max=N`` parsing, the ``/bead-chain`` command, the
+The queue driver handles ``--max=N`` parsing, the ``/bead-factory`` command, the
 ``interactive_turn_end`` / ``interactive_turn_cancel`` hook handlers, and lazy
 hook registration.
 
 This module performs **no** module-scope command/callback registration: the
-plugin entry point wires ``/bead-chain`` and the close-guard hook.
+plugin entry point wires ``/bead-factory`` and the close-guard hook.
 ``_ensure_hooks_registered`` registers the interactive-turn hooks lazily on
 first command use — covering the recovery tier, single-in_progress invariant,
 blocker gate, end-of-session rollup, and execution-hint mapping.
@@ -46,7 +46,7 @@ from code_puppy.messaging import (
 # Build loop prerequisite (in-package)
 # ---------------------------------------------------------------------------
 #
-# bead-chain is NOT a build engine — it's a queue driver that delegates the
+# bead-factory is NOT a build engine — it's a queue driver that delegates the
 # LLM-judged completion loop to the build loop. The per-turn decision lives in
 # :mod:`build_loop` and its state in :mod:`build_state`; both ship inside this
 # package, so we import them directly.
@@ -68,7 +68,7 @@ from .prompt import format_bead_as_build
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["handle_bead_chain_command"]
+__all__ = ["handle_bead_factory_command"]
 
 # ---------------------------------------------------------------------------
 # Lazy hook registration
@@ -145,12 +145,12 @@ def _parse_max_iterations(command: str) -> int | None | object:
         n = int(raw)
     except ValueError:
         emit_warning(
-            f"🔗 bead-chain: --max requires a positive integer, got {raw!r}. "
+            f"bead-factory: --max requires a positive integer, got {raw!r}. "
             "Refusing to start."
         )
         return _PARSE_ERROR
     if n <= 0:
-        emit_warning(f"🔗 bead-chain: --max must be > 0, got {n}. Refusing to start.")
+        emit_warning(f"bead-factory: --max must be > 0, got {n}. Refusing to start.")
         return _PARSE_ERROR
     return n
 
@@ -160,16 +160,16 @@ def _parse_max_iterations(command: str) -> int | None | object:
 # ---------------------------------------------------------------------------
 
 
-def handle_bead_chain_command(command: str) -> str | bool:
-    """Engage bead-chain: drive build across every ready bead in turn."""
+def handle_bead_factory_command(command: str) -> str | bool:
+    """Engage bead-factory: drive build across every ready bead in turn."""
     if state.is_active():
-        emit_info("🔗 bead-chain is already running.")
+        emit_info("bead-factory is already running.")
         return True
 
     # Immediate ack: the bd probes below (enforce_single_in_progress,
     # next_ready, claim) can stall noticeably, so emit *something* the
     # instant the command registers — otherwise the UI looks frozen.
-    emit_info("🔗 bead-chain starting…")
+    emit_info("bead-factory starting…")
 
     # Parse --max=N before touching bd: invalid flag → bail loud,
     # don't claim anything.
@@ -177,7 +177,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
     if max_iterations is _PARSE_ERROR:
         return True
 
-    # Probe first so /bead-chain fails loud on an empty queue or broken bd.
+    # Probe first so /bead-factory fails loud on an empty queue or broken bd.
     # Recovery check beats the ready queue: if a prior run errored mid-bead,
     # we must finish (or formally close) that one before starting new work.
     # The startup guard enforces the single-in_progress invariant by
@@ -187,11 +187,11 @@ def handle_bead_chain_command(command: str) -> str | bool:
         if bead is None:
             bead = next_ready()
     except BeadsError as exc:
-        emit_warning(f"🔗 bead-chain can't reach `bd`: {exc}")
+        emit_warning(f"🔗 bead-factory can't reach `bd`: {exc}")
         return True
 
     if bead is None:
-        emit_info("🦴 No ready beads — bead-chain has nothing to fetch.")
+        emit_info("🦴 No ready beads — bead-factory has nothing to fetch.")
         return True
 
     bead_id = str(bead.get("id", ""))
@@ -202,7 +202,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
     # close epic' failure we hit in prod. Refuse early.
     if is_excluded_type(bead):
         emit_warning(
-            f"🚫 bead-chain refused to start with {bead_id}: it's an excluded "
+            f"🚫 bead-factory refused to start with {bead_id}: it's an excluded "
             f"container type ({bead.get('issue_type', '?')}). "
             "An upstream filter leaked an epic into the chain — this is a bug."
         )
@@ -219,7 +219,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
     blockers = open_blocker_ids(bead_id)
     if blockers:
         emit_warning(
-            f"bead-chain refused to start with {bead_id}: it has open "
+            f"bead-factory refused to start with {bead_id}: it has open "
             f"blocker(s) [{', '.join(blockers)}]. Respecting work-time blocks "
             "at claim time, not just at close."
         )
@@ -255,7 +255,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
         try:
             claim(bead_id)
         except BeadsError as exc:
-            emit_warning(f"🔗 bead-chain couldn't claim {bead_id}: {exc}")
+            emit_warning(f"🔗 bead-factory couldn't claim {bead_id}: {exc}")
             state.stop()
             return True
     # Recovery beads are already in_progress — re-claiming is at best a
@@ -274,7 +274,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
     build_prompt = format_bead_as_build(bead, recovery=recovery)
     build_state.start(build_prompt)
 
-    emit_success("🔗 BEAD-CHAIN ENGAGED!")
+    emit_success("🔗 BEAD-FACTORY ENGAGED!")
     emit_info(f"First bead: {bead_id} — {bead.get('title', '')}")
     if max_iterations is not None:
         emit_info(f"Safety cap: stopping after {max_iterations} bead(s).")
@@ -386,7 +386,7 @@ async def _on_interactive_turn_cancel(
     hooks present one consistent contract. The body stays fully synchronous
     (no ``await``) — there's no I/O to suspend on.
 
-    The bead stays **in_progress** deliberately. The next ``/bead-chain``
+    The bead stays **in_progress** deliberately. The next ``/bead-factory``
     run hits the recovery tier first (:func:`pick_next_bead` tier 0) and
     re-prompts the agent with :data:`prompt._RECOVERY_PREAMBLE`,
     instructing it to assess what's already on disk before doing any new
@@ -403,11 +403,11 @@ async def _on_interactive_turn_cancel(
         return
     bead_id = state.get_state().current_bead_id
     state.stop()
-    emit_warning(f"🔗 bead-chain halted due to {reason}.")
+    emit_warning(f"🔗 bead-factory halted due to {reason}.")
     if not bead_id:
         return
     emit_system_message(
-        f"🔖 Bead {bead_id} left in_progress — the next /bead-chain run "
+        f"🔖 Bead {bead_id} left in_progress — the next /bead-factory run "
         "will resume it with a recovery preamble so the agent assesses "
         "the current state before doing new work."
     )

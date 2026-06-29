@@ -49,7 +49,7 @@ register_command(
     description="Drive build-mode verification across every ready bead in turn",
     usage="/bead-factory [--max=N]",
     category="plugin",
-)(chain_driver.handle_bead_chain_command)
+)(chain_driver.handle_bead_factory_command)
 
 # ---------------------------------------------------------------------------
 # Lifecycle callbacks

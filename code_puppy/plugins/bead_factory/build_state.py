@@ -6,7 +6,7 @@ identical -- this is a dumb data box; the build orchestration lives in
 ``build_loop.py``.
 
 Note: this is intentionally a *separate* module from bead_factory's
-``state.py`` (which holds bead-chain's ``BeadChainState``). The two singletons
+``state.py`` (which holds bead-factory's ``ChainState``). The two singletons
 never collide because they live in different modules with different classes.
 """
 
