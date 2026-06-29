@@ -374,8 +374,8 @@ def test_registry_commands_attributed_by_handler_module(monkeypatch):
 
     infos = [
         _FakeCommandInfo(
-            "bf-loop",
-            "Loop mode",
+            "inspectors",
+            "Inspectors menu",
             _handler_in("code_puppy.plugins.bead_factory.register_callbacks"),
         ),
         _FakeCommandInfo(
@@ -391,7 +391,7 @@ def test_registry_commands_attributed_by_handler_module(monkeypatch):
     ]
     monkeypatch.setattr(command_registry, "get_unique_commands", lambda: infos)
 
-    assert pc._registry_commands("bead_factory") == ["/bf-loop — Loop mode"]
+    assert pc._registry_commands("bead_factory") == ["/inspectors — Inspectors menu"]
     # Sibling plugin's command never leaks into bead_factory's list.
     assert pc._registry_commands("elsewhere") == ["/other — Other plugin command"]
     # Core commands aren't attributed to any plugin.
