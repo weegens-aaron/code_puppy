@@ -11,14 +11,24 @@ This module intentionally performs **no** module-scope command/callback
 registration: wiring the plugin entry point (registering ``/bead-chain``, the
 ``run_shell_command`` close-guard hook, etc.) is a dedicated downstream bead.
 ``_ensure_hooks_registered`` still registers the interactive-turn hooks lazily
-on first command use, exactly as before, so the queue-driver behavior — the
-recovery tier, single-in_progress invariant, blocker gate, end-of-session
-rollup, execution-hint mapping, and the wiggum-after-us hook ordering — is
-preserved unchanged.
+on first command use, so the queue-driver behavior — the recovery tier,
+single-in_progress invariant, blocker gate, end-of-session rollup, and
+execution-hint mapping — is preserved unchanged.
 
-The wiggum ``state`` prerequisite import is left pointing at
-``code_puppy.plugins.wiggum`` on purpose; rewiring that cross-import to
-bead_factory's own state is a separate downstream bead.
+Hook ordering (post-merge, explicit)
+------------------------------------
+Pre-merge the goal/wiggum loop lived in a *separate* plugin that registered
+its ``interactive_turn_end`` hook at startup, so bead-chain's lazily-
+registered hook always landed AFTER it in the callback list — the chain
+driver therefore observed the goal decision before acting. Inside one
+package that load-order trick no longer holds automatically, so
+``_ensure_hooks_registered`` now makes the ordering explicit: it registers
+the in-package goal/wiggum hooks FIRST, then the chain-driver hooks. Chain
+logic still runs strictly AFTER the per-turn goal decision.
+
+The goal/wiggum ``state`` prerequisite is now the in-package
+:mod:`loop_state` module (with the per-turn decision in :mod:`goal_loop`);
+there is no remaining cross-import of ``code_puppy.plugins.wiggum``.
 
 Module layout (unchanged from bead-chain):
 
@@ -46,29 +56,31 @@ from code_puppy.messaging import (
 )
 
 # ---------------------------------------------------------------------------
-# wiggum prerequisite check (bead_chain-c87)
+# Goal/wiggum prerequisite (in-package, post-merge)
 # ---------------------------------------------------------------------------
 #
 # bead-chain is NOT a goal engine — it's a queue driver that delegates the
-# LLM-judged completion loop to wiggum's /goal mode. wiggum is therefore a
-# hard prerequisite (documented in the README). Historically this was a bare
-# top-level ``from code_puppy.plugins.wiggum import state`` which, when wiggum
-# wasn't loaded, raised a raw ImportError. The plugin loader caught it and the
-# app survived, but the user saw a cryptic
-# ``Failed to import callbacks from user plugin bead_chain: No module named
-# 'code_puppy.plugins.wiggum'`` instead of an actionable message.
+# LLM-judged completion loop to the goal/wiggum loop. Pre-merge that loop
+# lived in a *separate* plugin (``code_puppy.plugins.wiggum``) which might not
+# be loaded, so we imported it defensively and degraded gracefully when it was
+# missing.
 #
-# We now import wiggum defensively: on failure we keep the module importable
-# (so the loader logs nothing alarming), record the absence in
-# ``_WIGGUM_AVAILABLE``, log one clear human-readable line (below, after the
-# remaining imports), and make ``/bead-chain`` degrade gracefully — it tells
-# the user wiggum is required rather than blowing up. When wiggum IS present
-# this is a single successful import with zero behavioural change.
+# Post-merge (bead-factory) the goal/wiggum loop ships INSIDE this very
+# package: the per-turn decision lives in :mod:`goal_loop` and its state in
+# :mod:`loop_state`. The cross-plugin import is therefore gone — we reference
+# the in-package modules directly. We KEEP the defensive import + graceful
+# ``/bead-chain`` degradation anyway: it preserves the friendly
+# "prerequisite missing" UX contract and guards against a catastrophic
+# in-package import failure (a broken submodule) without crashing the app.
+# When the package is healthy this is a single successful import with zero
+# behavioural change.
 try:
-    from code_puppy.plugins.wiggum import state as wiggum_state
+    from . import goal_loop
+    from . import loop_state as wiggum_state
 
     _WIGGUM_AVAILABLE = True
 except ImportError:
+    goal_loop = None  # type: ignore[assignment]
     wiggum_state = None  # type: ignore[assignment]
     _WIGGUM_AVAILABLE = False
 
@@ -88,13 +100,15 @@ from .prompt import format_bead_as_goal
 
 logger = logging.getLogger(__name__)
 
-# Human-readable message shown when the wiggum prerequisite is missing. Kept
-# as a module constant so the import-time log line and the runtime
-# ``/bead-chain`` warning say exactly the same thing (and tests can assert it).
+# Human-readable message shown when the goal/wiggum prerequisite is missing.
+# Post-merge the loop is in-package, so this only fires on a catastrophic
+# in-package import failure — but the friendly degradation UX is preserved
+# verbatim. Kept as a module constant so the import-time log line and the
+# runtime ``/bead-chain`` warning say exactly the same thing (tests assert it).
 _WIGGUM_MISSING_MESSAGE = (
-    "\U0001f517 bead-chain requires the wiggum plugin — install/enable it to "
-    "use /bead-chain. bead-chain drives wiggum's /goal mode one bead at a "
-    "time, so it cannot run without it."
+    "\U0001f517 bead-chain requires the bead_factory goal/wiggum loop, but it "
+    "failed to load — /bead-chain drives the goal loop one bead at a time, so "
+    "it cannot run without it."
 )
 
 if not _WIGGUM_AVAILABLE:
@@ -112,16 +126,40 @@ _HOOKS_REGISTERED = False
 
 
 def _ensure_hooks_registered() -> None:
-    """Register our turn-end / cancel hooks exactly once, lazily.
+    """Register the turn-end / cancel hooks once, in goal-then-chain order.
 
-    By deferring until the first /bead-chain invocation we guarantee
-    wiggum (loaded at startup) is already in the callback list ahead
-    of us — so wiggum's continuation-dict choice happens before we
-    decide whether to grab the next bead.
+    Ordering contract (post-merge, explicit)
+    ----------------------------------------
+    The chain driver MUST observe the goal/wiggum per-turn decision BEFORE
+    it acts: every turn the goal loop (``goal_loop.on_interactive_turn_end``)
+    decides whether the current bead is complete (inspectors passed) or needs
+    another iteration; only once the goal loop has stopped does the chain
+    driver (``_on_interactive_turn_end``) close the bead and claim the next
+    one.
+
+    Pre-merge this ordering fell out of plugin LOAD order: the wiggum plugin
+    registered its ``interactive_turn_end`` hook at startup and bead-chain
+    registered its own LAZILY (here), so bead-chain always landed AFTER
+    wiggum in the callback list. Inside one package that load-order trick no
+    longer holds automatically, so we make the ordering explicit and
+    deterministic: register the in-package goal/wiggum hooks FIRST, then the
+    chain-driver hooks. ``register_callback`` appends in call order and dedups
+    by identity, so this guarantees the goal decision runs strictly before
+    the chain driver every turn — even if the plugin entry point also
+    registered the goal hooks at startup (a no-op dedup that simply preserves
+    their earlier, still-ahead-of-us slot).
     """
     global _HOOKS_REGISTERED
     if _HOOKS_REGISTERED:
         return
+    if _WIGGUM_AVAILABLE:
+        # Goal/wiggum FIRST: its per-turn decision must be observed before
+        # the chain driver acts on it. Idempotent — if the entry point
+        # already registered these at startup, dedup keeps their slot.
+        register_callback("interactive_turn_end", goal_loop.on_interactive_turn_end)
+        register_callback(
+            "interactive_turn_cancel", goal_loop.on_interactive_turn_cancel
+        )
     register_callback("interactive_turn_end", _on_interactive_turn_end)
     register_callback("interactive_turn_cancel", _on_interactive_turn_cancel)
     _HOOKS_REGISTERED = True
@@ -334,9 +372,10 @@ async def _on_interactive_turn_end(
     if not state.is_active():
         return None
 
-    # Wiggum is mid-goal — let it cook. We're guaranteed to run AFTER
-    # wiggum on each turn because we registered later (see
-    # _ensure_hooks_registered docstring).
+    # Goal/wiggum is mid-goal — let it cook. We're guaranteed to run AFTER
+    # the goal decision on each turn because _ensure_hooks_registered
+    # registers the in-package goal/wiggum hook ahead of this one (see its
+    # docstring for the explicit ordering contract).
     if wiggum_state.is_active():
         return None
 
