@@ -550,7 +550,7 @@ def activate_next_bead(
     goal_prompt = format_bead_as_goal(bead, recovery=recovery)
 
     # Hand the wheel to wiggum's /goal loop for the next N turns.
-    wiggum_state.start(goal_prompt, mode="goal")
+    wiggum_state.start(goal_prompt)
 
     action = "recovered" if recovery else "claimed"
     emit_info(f"🔗 bead-chain {action} {bead_id} — {bead.get('title', '')}")

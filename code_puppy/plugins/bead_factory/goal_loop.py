@@ -23,8 +23,6 @@ from typing import Any
 
 from code_puppy.config import get_value
 from code_puppy.messaging import (
-    emit_info,
-    emit_system_message,
     emit_warning,
 )
 
@@ -34,7 +32,6 @@ from .inspector import GoalInspection, inspect_goal
 from .inspector_config import (
     InspectorConfig,
     get_enabled_inspectors_or_default,
-    load_inspectors,
 )
 
 # Default cap on goal-mode iterations. Override per-user with:
@@ -58,41 +55,6 @@ def get_goal_max_iterations() -> int:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def extract_prompt(command: str) -> str:
-    """Pull the prompt text out of a ``/command <prompt>`` invocation."""
-    parts = command.split(maxsplit=1)
-    if len(parts) < 2:
-        return ""
-    return parts[1].strip()
-
-
-def emit_configured_inspectors_summary() -> None:
-    """Show the user exactly which inspectors the goal loop will fan out to.
-
-    Previously we just told users to run /inspectors, which left people
-    wondering if they'd configured anything at all. Now we list the
-    enabled inspectors (and warn about disabled ones) so the state of the
-    world is obvious before the loop kicks off.
-    """
-    registry = load_inspectors()
-    enabled = registry.enabled()
-    disabled = [i for i in registry.inspectors if not i.enabled]
-
-    if enabled:
-        emit_info(f"Configured inspectors ({len(enabled)} enabled):")
-        for inspector in enabled:
-            emit_info(f"  - {inspector.name} ({inspector.model})")
-        if disabled:
-            disabled_names = ", ".join(i.name for i in disabled)
-            emit_info(f"  (disabled: {disabled_names})")
-    else:
-        emit_info(
-            "No inspectors configured — falling back to a single default "
-            "inspector using the implementor's model."
-        )
-    emit_info("Run /inspectors to add, edit, enable, or disable inspectors.")
 
 
 def _response_text(result: Any) -> str | None:
@@ -294,7 +256,7 @@ async def on_interactive_turn_end(
     success: bool = True,
     error: BaseException | None = None,
 ) -> dict[str, Any] | None:
-    """Ask the CLI to continue while loop/goal mode is active."""
+    """Ask the CLI to continue while the goal loop is active."""
     del prompt, success
     goal_prompt = state.get_prompt()
     if not goal_prompt:
@@ -302,62 +264,47 @@ async def on_interactive_turn_end(
         return None
 
     loop_num = state.increment()
-    if state.is_goal_mode():
-        try:
-            complete, notes, _verdicts = await _run_goal_inspectors(
-                agent=agent,
-                goal=goal_prompt,
-                result=result,
-                error=error,
-            )
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            # Belt-and-suspenders: _run_goal_inspectors already swallows these
-            # but we never want a stray Ctrl+C to escape the plugin and
-            # take down the whole REPL.
-            display_inspector("⛔ Goal loop cancelled (Ctrl+C).")
-            state.stop()
-            return None
-        if complete:
-            # Per-inspector verdicts were already shown by _run_goal_inspectors
-            # -- no need to re-dump the notes block here.
-            display_inspector("✅ GOAL COMPLETE!", final=True)
-            state.stop()
-            return None
+    try:
+        complete, notes, _verdicts = await _run_goal_inspectors(
+            agent=agent,
+            goal=goal_prompt,
+            result=result,
+            error=error,
+        )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # Belt-and-suspenders: _run_goal_inspectors already swallows these
+        # but we never want a stray Ctrl+C to escape the plugin and
+        # take down the whole REPL.
+        display_inspector("Goal loop cancelled (Ctrl+C).")
+        state.stop()
+        return None
+    if complete:
+        # Per-inspector verdicts were already shown by _run_goal_inspectors
+        # -- no need to re-dump the notes block here.
+        display_inspector("GOAL COMPLETE!", final=True)
+        state.stop()
+        return None
 
-        max_iters = get_goal_max_iterations()
-        if loop_num >= max_iters:
-            display_inspector(
-                f"🛑 GOAL STOPPED — Hit max iterations ({max_iters}). "
-                f"Raise the cap with /set bf_goal_max_iterations=<int>.",
-                final=True,
-            )
-            state.stop()
-            return None
-
-        state.get_state().remediation_notes = notes
+    max_iters = get_goal_max_iterations()
+    if loop_num >= max_iters:
         display_inspector(
-            f"❌ GOAL INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
+            f"GOAL STOPPED — Hit max iterations ({max_iters}). "
+            f"Raise the cap with /set bf_goal_max_iterations=<int>.",
             final=True,
         )
-        return {
-            "prompt": f"{goal_prompt}\n\nInspector remediation notes:\n{notes}",
-            "clear_context": True,
-            "delay": 0.5,
-            "reason": "goal",
-        }
+        state.stop()
+        return None
 
-    if error is not None:
-        emit_warning(f"\n🍩 WIGGUM RETRYING AFTER ERROR! (Loop #{loop_num})")
-        emit_system_message(f"Previous run failed: {error}")
-    else:
-        emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
-
-    emit_system_message(f"Re-running prompt: {goal_prompt}")
+    state.get_state().remediation_notes = notes
+    display_inspector(
+        f"GOAL INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
+        final=True,
+    )
     return {
-        "prompt": goal_prompt,
+        "prompt": f"{goal_prompt}\n\nInspector remediation notes:\n{notes}",
         "clear_context": True,
         "delay": 0.5,
-        "reason": "wiggum",
+        "reason": "goal",
     }
 
 
@@ -365,4 +312,4 @@ def on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> Non
     del prompt
     if state.is_active():
         state.stop()
-        emit_warning(f"🍩 Wiggum/goal loop stopped due to {reason}")
+        emit_warning(f"Goal loop stopped due to {reason}")

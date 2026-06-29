@@ -335,7 +335,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
         emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
     goal_prompt = format_bead_as_goal(bead, recovery=recovery)
-    wiggum_state.start(goal_prompt, mode="goal")
+    wiggum_state.start(goal_prompt)
 
     emit_success("🔗 BEAD-CHAIN ENGAGED!")
     emit_info(f"First bead: {bead_id} — {bead.get('title', '')}")

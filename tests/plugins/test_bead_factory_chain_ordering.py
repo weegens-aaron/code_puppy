@@ -135,7 +135,7 @@ def test_chain_driver_defers_while_goal_is_active(monkeypatch):
     """
     cd.state.get_state().active = True
     cd.state.get_state().current_bead = {"id": "bead-x"}
-    loop_state.start("do the thing", mode="goal")
+    loop_state.start("do the thing")
     try:
         result = asyncio.run(
             cd._on_interactive_turn_end(agent=object(), prompt="p", result=None)

@@ -243,7 +243,7 @@ async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_inspe
     """When goal is incomplete, the next iteration's prompt must include the notes."""
     from code_puppy.plugins.bead_factory import loop_state as state
 
-    state.start("fix the bug", mode="goal")
+    state.start("fix the bug")
 
     inspector_config.add_inspector(InspectorConfig(name="checker", model="m"))
 
@@ -275,7 +275,7 @@ async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_inspe
 async def test_turn_end_stops_loop_on_full_success(isolated_inspectors):
     from code_puppy.plugins.bead_factory import loop_state as state
 
-    state.start("ship it", mode="goal")
+    state.start("ship it")
 
     inspector_config.add_inspector(InspectorConfig(name="checker", model="m"))
 
@@ -485,7 +485,7 @@ async def test_final_complete_banner_omits_notes_body(isolated_inspectors):
     """
     from code_puppy.plugins.bead_factory import loop_state as state
 
-    state.start("say hi", mode="goal")
+    state.start("say hi")
     inspector_config.add_inspector(InspectorConfig(name="judy", model="m"))
 
     async def fake_inspector_goal(**_kwargs):
@@ -743,7 +743,7 @@ async def test_turn_end_swallows_cancellation_and_stops_goal_mode(isolated_inspe
     """
     from code_puppy.plugins.bead_factory import loop_state as state
 
-    state.start("do a thing", mode="goal")
+    state.start("do a thing")
     inspector_config.add_inspector(InspectorConfig(name="slow", model="m"))
 
     async def fake_inspector_goal(**_kwargs):

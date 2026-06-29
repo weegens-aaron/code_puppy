@@ -22,21 +22,18 @@ class WiggumState:
     active: bool = False
     prompt: str | None = None
     loop_count: int = 0
-    mode: str = "wiggum"
     remediation_notes: str | None = None
 
-    def start(self, prompt: str, *, mode: str = "wiggum") -> None:
+    def start(self, prompt: str) -> None:
         self.active = True
         self.prompt = prompt
         self.loop_count = 0
-        self.mode = mode
         self.remediation_notes = None
 
     def stop(self) -> None:
         self.active = False
         self.prompt = None
         self.loop_count = 0
-        self.mode = "wiggum"
         self.remediation_notes = None
 
     def increment(self) -> int:
@@ -55,16 +52,12 @@ def is_active() -> bool:
     return _STATE.active
 
 
-def is_goal_mode() -> bool:
-    return _STATE.active and _STATE.mode == "goal"
-
-
 def get_prompt() -> str | None:
     return _STATE.prompt if _STATE.active else None
 
 
-def start(prompt: str, *, mode: str = "wiggum") -> None:
-    _STATE.start(prompt, mode=mode)
+def start(prompt: str) -> None:
+    _STATE.start(prompt)
 
 
 def stop() -> None:
