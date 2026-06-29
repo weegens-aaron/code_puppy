@@ -33,7 +33,7 @@ from typing import Any
 # and flat under bare pytest. At import time ``beads`` is only partially
 # initialised (its core ran first, then it imports us); that's fine — we
 # touch ``_beads`` attributes only when our functions are actually called.
-try:  # package context: code_puppy.plugins.bead_chain.beads_reads
+try:  # package context: code_puppy.plugins.bead_factory.beads_reads
     from . import beads as _beads
     from .beads import (
         BLOCKING_BUG_TYPES,

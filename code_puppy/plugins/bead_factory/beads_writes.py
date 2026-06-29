@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-try:  # package context: code_puppy.plugins.bead_chain.beads_writes
+try:  # package context: code_puppy.plugins.bead_factory.beads_writes
     from . import beads as _beads
     from .beads import BeadsError, _validate_bead_id, is_recurring_epic
 except ImportError:  # flat context: bare ``import beads_writes`` under pytest
