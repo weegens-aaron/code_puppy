@@ -49,7 +49,7 @@ _RECOVERY_PREAMBLE: str = (
     "\n"
     "If the bead is already satisfied by the current state, reply with a\n"
     "summary of what's in place that meets the requirements. Do NOT redo\n"
-    "work — the LLM judges will verify and close the bead based on your\n"
+    "work — the LLM inspectors will verify and close the bead based on your\n"
     "summary.\n"
     "\n"
     "Otherwise, continue from where the previous run left off.\n"
@@ -92,7 +92,7 @@ TRIAGE_MARKER: str = "[bead-factory:triaged]"
 #
 # Semantics: the *filing* agent already attempted an inline fix as part
 # of their original bead's scope expansion. The fix may or may not have
-# survived intact — maybe the judges sent them back for revisions and
+# survived intact — maybe the inspectors sent them back for revisions and
 # they backed it out; maybe the fix works but the bug deserves a real
 # test; maybe the inline patch was a band-aid and a proper fix is
 # needed. This preamble tells the verifying agent to assess all three.
@@ -111,7 +111,7 @@ _TRIAGE_VERIFY_PREAMBLE: str = (
     "2. Use ``git log`` and ``bd show`` to see what the prior agent did.\n"
     "3. Decide which of these is true:\n"
     "   a. The inline fix is correct and complete → add/verify tests,\n"
-    "      then summarize for the judges. The bead closes normally.\n"
+    "      then summarize for the inspectors. The bead closes normally.\n"
     "   b. The inline fix is a band-aid and a proper fix is needed →\n"
     "      implement the proper fix, then summarize the upgrade.\n"
     "   c. The fix was backed out or never landed → implement it now\n"
@@ -144,7 +144,7 @@ _TRIAGE_VERIFY_PREAMBLE: str = (
 #     already-completed bead buys nothing except a close-time deadlock:
 #     bd refuses to close a bead that an open bug "blocks". Reserve
 #     ``--blocks`` strictly for genuine dependency tracking. The
-#     close-side auto-revert (bead_chain-yvc / ADR 0004) is the safety
+#     close-side auto-revert is the safety
 #     net if a stray block edge ever does slip through; this softening
 #     simply makes that recovery path fire far less often.
 #
@@ -186,11 +186,11 @@ _BUG_DISCOVERY_PROTOCOL: str = (
     "  verification later. Reserve --blocks for genuine dependencies.\n"
     "  Then fix the bug AS PART OF this bead's work (scope expansion),\n"
     "  finish the original goal, and present both in your summary so\n"
-    "  the judges see the expanded scope. The filed bug stays open and\n"
+    "  the inspectors see the expanded scope. The filed bug stays open and\n"
     "  will be claimed in a future iteration for proper verification —\n"
     "  that's intentional, not a bug in the system.\n"
     "\n"
-    "Do NOT close any bead yourself — the judges are the only legitimate\n"
+    "Do NOT close any bead yourself — the inspectors are the only legitimate\n"
     "closer. The bug-discovery protocol is about *filing*, not closing.\n"
 )
 
@@ -253,11 +253,11 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     ``## Acceptance Criteria`` section is injected just before the
     "When you believe this is done" checklist via
     :func:`_format_acceptance_criteria_block`, so the agent is shown the
-    same contract the LLM judges grade it against. Absent/empty -> the
+    same contract the LLM inspectors grade it against. Absent/empty -> the
     prompt is unchanged.
 
-    Right after the acceptance block (coverage-audit gap FB-5,
-    ``bead_chain-vmo``), bead-factory runs ``bd lint <id>`` on the claim
+    Right after the acceptance block (coverage-audit gap FB-5),
+    bead-factory runs ``bd lint <id>`` on the claim
     path and folds any missing-template-section warnings into a
     ``## Template Lint Warnings`` block (:func:`_format_lint_warnings_block`).
     The acceptance block shows what's *present*; this shows what the
@@ -283,7 +283,7 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     context: gating behaviour is unchanged, and the block is ``""`` when
     the bead carries no such edges.
 
-    Finally (coverage-audit gap FB-6, ``bead_chain-ndt``), bd's
+    Finally (coverage-audit gap FB-6), bd's
     persistent memory layer (``bd remember`` / ``bd memories``) is folded
     into a ``## Persistent Memories`` block
     (:func:`_format_memory_digest_block`) near the top of the body so a
@@ -311,13 +311,13 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     metadata = "\n".join(metadata_lines)
 
     # Render the bead's own design rationale + acceptance_criteria (both
-    # already on the bd ready dict) so the agent — and the LLM judges —
+    # already on the bd ready dict) so the agent — and the LLM inspectors —
     # work from the same context and grade against the same contract.
     # Each is "" when absent, so the prompt is unchanged in that case.
     design_block = _format_design_block(bead)
     acceptance_block = _format_acceptance_criteria_block(bead)
 
-    # FB-5 (bead_chain-vmo): run `bd lint <id>` on the claim path and fold
+    # FB-5: run `bd lint <id>` on the claim path and fold
     # any missing-template-section warnings into the build prompt. Building
     # the prompt happens immediately after `bd update --claim`, so the
     # lint is the claim path. Where the acceptance block above renders
@@ -326,14 +326,14 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     # without `lint` never halts the chain.
     lint_block = _format_lint_warnings_block(_fetch_lint_warnings(bead_id))
 
-    # FB-11 (bead_chain-n57): fold the bead's non-gating context edges
+    # FB-11: fold the bead's non-gating context edges
     # (discovered-from / caused-by / validates / related / relates-to /
     # tracks) into a 'Related Context' block so the agent isn't blind to
     # provenance, causal bug links and validating tests. "" when absent;
     # gating behaviour is untouched.
     related_block = _format_related_context_block(bead)
 
-    # FB-6 (bead_chain-ndt): warm-start the agent with bd's persistent
+    # FB-6: warm-start the agent with bd's persistent
     # memory layer so each bead doesn't begin cold. Soft-fails to "" when
     # bd has no memories (or lacks the subcommand); placed at the top of
     # the body — above the bead-specific content — because it's whole-
@@ -367,6 +367,6 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
         f"   design decision, a non-obvious root cause) so the next bead\n"
         f"   starts warm: `bd remember <insight> --key=<short-slug>`.\n"
         f"\n"
-        f"LLM judges will verify completion before this bead is closed."
+        f"LLM inspectors will verify completion before this bead is closed."
         f"{_BUG_DISCOVERY_PROTOCOL}"
     )

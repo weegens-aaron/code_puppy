@@ -1,17 +1,16 @@
 """Build-loop orchestration for the bead_factory plugin.
 
-Relocated from the former ``wiggum`` plugin's ``register_callbacks.py``. This
-module holds the *importable logic* only -- the iteration-cap reader, the
+This module holds the *importable logic* only -- the iteration-cap reader, the
 parallel inspector orchestration, the remediation-note formatting, and the
 turn-end/turn-cancel drivers that power the build loop. It does NOT register
 any slash commands or callbacks; wiring is the entry-point module's job.
 
-Renames applied (pure rename, zero behavior change):
-  * the verifier vocabulary becomes "inspectors"
+Conventions:
+  * the build-completion verifiers are "inspectors"
     (``_run_build_inspectors``, ``_run_single_inspector``, etc.)
-  * the iteration-cap config key becomes ``bf_build_max_iterations``
+  * the iteration-cap config key is ``bf_build_max_iterations``
     (read via ``get_value``)
-  * the banner key/label become ``bf_inspector`` / ``INSPECTOR``
+  * the banner key/label are ``bf_inspector`` / ``INSPECTOR``
     (see ``banner.py``)
 """
 

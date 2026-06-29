@@ -1,6 +1,6 @@
 """Map a bead's free-form ``execution_*`` metadata onto the serial drive.
 
-Coverage-audit gap FB-8 (``bead_chain-9n3``, swarms#2): bd carries a
+Coverage-audit gap FB-8 (swarms#2): bd carries a
 small, *unenforced* execution vocabulary in each bead's free-form
 ``metadata`` JSON — the canonical keys are ``execution_parallel_group``,
 ``execution_agent_type``, ``execution_model``, ``execution_effort`` and

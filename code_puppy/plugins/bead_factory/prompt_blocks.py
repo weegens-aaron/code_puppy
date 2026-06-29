@@ -104,7 +104,7 @@ def _fetch_lint_warnings(bead_id: str) -> list[str]:
     renders without a lint block rather than crashing the chain. Running
     the lint at prompt-build time means the *claim path* (which builds the
     build prompt immediately after ``bd update --claim``) always consults
-    the template contract — coverage-audit gap FB-5, ``bead_chain-vmo``.
+    the template contract — coverage-audit gap FB-5.
     """
     try:
         return lint_warnings(bead_id)
@@ -118,8 +118,7 @@ def _format_memory_digest_block(mems: dict[str, str]) -> str:
     Bridges bd's memory layer into the build prompt so a freshly-spawned
     working agent starts warm — it sees the project's durable insights
     (architecture decisions, gotchas, prior-bead learnings) the same way
-    a human running ``bd prime`` would (coverage-audit gap FB-6,
-    ``bead_chain-ndt``).
+    a human running ``bd prime`` would (coverage-audit gap FB-6).
 
     Contract:
 
@@ -212,9 +211,9 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
 
 
 # Non-gating, context-bearing edge types bead-factory surfaces in the build
-# prompt (coverage-audit gap FB-11, ``bead_chain-n57``; dependency#2).
+# prompt (coverage-audit gap FB-11; dependency#2).
 #
-# These six edges carry *context* the working agent (and the LLM judges)
+# These six edges carry *context* the working agent (and the LLM inspectors)
 # otherwise can't see: provenance (``discovered-from``), causal bug links
 # (``caused-by``), validating tests (``validates``), and plain related
 # work (``related`` / ``relates-to`` / ``tracks``). The field guide
@@ -267,7 +266,7 @@ def _format_related_context_block(bead: dict[str, Any]) -> str:
     Folds the bead's *non-gating* context edges — ``discovered-from``,
     ``caused-by``, ``validates``, ``related``, ``relates-to``,
     ``tracks`` (see :data:`_CONTEXT_EDGE_GLOSSES`) — into a short block
-    so the working agent (and the LLM judges) can see the bead's
+    so the working agent (and the LLM inspectors) can see the bead's
     provenance, causal bug link, validating test, and related work
     instead of working blind (coverage-audit gap FB-11). The block opens
     with a one-line caveat making explicit these links are background,
@@ -373,9 +372,9 @@ def _format_acceptance_criteria_block(bead: dict[str, Any]) -> str:
 
     ``acceptance_criteria`` is already a key on the ``bd ready --json``
     record bead-factory hands to :func:`format_bead_as_build`, but the
-    formatter historically never read it — so the LLM judges verified
+    formatter historically never read it — so the LLM inspectors verified
     completion against a contract the prompt never showed the agent
-    (coverage-audit gap FB-2, ``bead_chain-2zx``).
+    (coverage-audit gap FB-2).
 
     Contract:
 
@@ -409,10 +408,10 @@ def _format_lint_warnings_block(warnings: list[str]) -> str:
     """Return a ``## Template Lint Warnings`` block, or ``""`` when clean.
 
     Renders the missing-section names ``bd lint`` reported for this bead
-    (coverage-audit gap FB-5, ``bead_chain-vmo``). Where
+    (coverage-audit gap FB-5). Where
     :func:`_format_acceptance_criteria_block` shows the agent *what's
     present*, this block shows *what the template contract says is
-    missing* — the two pair up so the agent (and the LLM judges, who
+    missing* — the two pair up so the agent (and the LLM inspectors, who
     grade against the same contract) aren't blind to a section a
     ``--graph`` import silently dropped.
 
@@ -432,7 +431,7 @@ def _format_lint_warnings_block(warnings: list[str]) -> str:
     return (
         "## Template Lint Warnings\n"
         "`bd lint` flagged this bead as missing recommended section(s) for "
-        "its issue type. The LLM judges grade completion against these "
+        "its issue type. The LLM inspectors grade completion against these "
         "contracts, so treat each missing section as part of the work: "
         "satisfy it (or its intent) before you consider the bead done.\n"
         f"{bullets}\n\n"

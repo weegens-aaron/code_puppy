@@ -1,7 +1,7 @@
 """Detect agent attempts to close a bead while bead-factory is in flight.
 
-bead-factory delegates the close decision to the LLM judges: a bead
-is only closed once the judges agree the build is satisfied, via
+bead-factory delegates the close decision to the LLM inspectors: a bead
+is only closed once the inspectors agree the build is satisfied, via
 :func:`bd close` invoked by the plugin itself (see ``beads.close``).
 
 If an agent shells out to ``bd close`` (or ``bd update <id>
@@ -52,7 +52,7 @@ _COMMAND_BOUNDARY = r"(?:^|&&|\|\||;|\|)\s*"
 # Quoted-segment matcher used to blank out shell string literals before
 # the boundary scan. Three flavours, ordered so the longest/most-specific
 # prefix wins at each position:
-#   * ANSI-C ``$'...'`` (``bead_chain-khg``) — honours backslash escapes,
+#   * ANSI-C ``$'...'`` — honours backslash escapes,
 #     so ``\'`` does NOT end the string. Must come first so the ``$``
 #     prefix is consumed as a unit; otherwise the plain single-quote alt
 #     below would match ``'a\'`` and stop at the *escaped* quote, leaving
@@ -66,7 +66,7 @@ _COMMAND_BOUNDARY = r"(?:^|&&|\|\||;|\|)\s*"
 #     message body) is no longer at a real command boundary, and
 #   * a genuine ``bd close`` on its own line *outside* quotes still is.
 # This is what lets us keep ``re.MULTILINE`` (so newline-separated
-# commands are caught) without the false-positive in ``bead_chain-21d``.
+# commands are caught) without the re.MULTILINE false-positive.
 _QUOTED_SEGMENT_RE = re.compile(
     r"""(?:\$'(?:\\.|[^'\\])*'|'[^']*'|"(?:\\.|[^"\\])*")""", re.DOTALL
 )
@@ -82,14 +82,14 @@ def _blank_quoted(command: str) -> str:
     *outside* quotes are untouched and still act as separators.
 
     Handles plain ``'...'``, double ``"..."`` *and* ANSI-C ``$'...'``
-    quoting (``bead_chain-khg``); the latter honours backslash escapes
+    quoting; the latter honours backslash escapes
     so an escaped quote (``\'``) doesn't prematurely end the literal.
     """
     return _QUOTED_SEGMENT_RE.sub(lambda m: " " * len(m.group(0)), command)
 
 
 # ---------------------------------------------------------------------------
-# Heredoc-body blanking (bead_chain-khg)
+# Heredoc-body blanking
 # ---------------------------------------------------------------------------
 #
 # A heredoc body is literal text fed to a command's stdin, e.g.
@@ -112,7 +112,7 @@ def _blank_quoted(command: str) -> str:
 #
 # Conservative fallback (anti-false-negative): if no terminator line is
 # found, we do NOT blank anything. A real ``bd close`` slipping through
-# (false negative — a bead closed without judges) is strictly worse than
+# (false negative — a bead closed without inspectors) is strictly worse than
 # a spurious block (false positive — a mild annoyance), so when in doubt
 # we leave the text scannable.
 _HEREDOC_OPENER_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
@@ -168,7 +168,7 @@ def _blank_heredocs(command: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Flag-argument blanking (bead_chain-4hy)
+# Flag-argument blanking
 # ---------------------------------------------------------------------------
 #
 # When the ``on_run_shell_command`` hook receives a command, shell-level
@@ -211,7 +211,7 @@ def _blank_flag_args(command: str) -> str:
     Like :func:`_blank_quoted`, replaces with equal-length whitespace to
     keep offsets stable. Designed to run *after* ``_blank_quoted`` so it
     catches the case where quotes were stripped before the hook received
-    the command (``bead_chain-4hy``).
+    the command.
     """
     result = list(command)
     for match in _TEXT_FLAG_RE.finditer(command):
@@ -260,7 +260,7 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
     if "bd" not in command:
         return None
 
-    # Blank out heredoc bodies first (``bead_chain-khg``): their literal
+    # Blank out heredoc bodies first: their literal
     # text isn't quoted, so a ``bd close`` line inside ``<<EOF ... EOF``
     # would otherwise look like a fresh command at a newline boundary.
     #
@@ -268,24 +268,25 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
     # (e.g. a multi-line git commit message that happens to start a line
     # with "bd close", or an ANSI-C ``$'...'`` literal) can never be
     # mistaken for a real command at a boundary. Real, unquoted
-    # invocations are unaffected. See ``bead_chain-21d`` for the
-    # re.MULTILINE false-positive this guards, and ``bead_chain-khg``
-    # for the ANSI-C / heredoc edge cases.
+    # invocations are unaffected. This guards against a re.MULTILINE
+    # false-positive and the ANSI-C / heredoc edge cases.
     #
     # Finally blank text-consuming flag arguments (--append-notes, -m,
     # etc.) to handle the case where quotes were stripped before the hook
-    # received the command (``bead_chain-4hy``).
+    # received the command.
     scannable = _blank_flag_args(_blank_quoted(_blank_heredocs(command)))
 
     if _BD_CLOSE_RE.search(scannable):
         return CloseGuardMatch(
             pattern_name="bd close",
-            description="Direct `bd close` bypasses the LLM judges.",
+            description="Direct `bd close` bypasses the LLM inspectors.",
         )
     if _BD_UPDATE_STATUS_CLOSED_RE.search(scannable):
         return CloseGuardMatch(
             pattern_name="bd update --status=closed",
-            description=("Setting status=closed on a bead bypasses the LLM judges."),
+            description=(
+                "Setting status=closed on a bead bypasses the LLM inspectors."
+            ),
         )
     return None
 
@@ -319,7 +320,7 @@ async def on_run_shell_command(
     In that case returns a ``{"blocked": True, ...}`` dict whose
     ``error_message`` is surfaced verbatim to the agent as the shell
     command's error output — a teachable moment reminding the agent
-    the LLM judges are the only legitimate closer.
+    the LLM inspectors are the only legitimate closer.
     """
     del context, cwd, timeout
 
@@ -336,9 +337,9 @@ async def on_run_shell_command(
         f"  {match.description}\n"
         f"  bead-factory is currently driving bead {current} through "
         f"the build loop. The bead will be closed automatically "
-        f"once the LLM judges sign off — do NOT close it yourself.\n"
+        f"once the LLM inspectors sign off — do NOT close it yourself.\n"
         f"  Keep working on the task. If you believe the bead is "
-        f"complete, summarize what you did and let the judges decide."
+        f"complete, summarize what you did and let the inspectors decide."
     )
     emit_warning(reminder)
     return {

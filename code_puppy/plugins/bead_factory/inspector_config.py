@@ -1,10 +1,5 @@
 """Persisted configuration for build-mode LLM inspectors.
 
-Relocated from the former ``wiggum`` plugin's build-completion verifier config
-module and renamed to the "inspectors" vocabulary (pure rename, zero behavior
-change). Imports are rewired to the ``code_puppy.plugins.bead_factory``
-namespace.
-
 Each inspector is a (name, model, prompt, enabled) tuple. Inspectors live in a
 JSON file at ``$XDG_DATA_HOME/code_puppy/inspectors.json`` so users can
 configure multiple verifiers -- for example, one inspector that checks tests

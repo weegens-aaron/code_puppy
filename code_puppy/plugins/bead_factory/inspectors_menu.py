@@ -1,8 +1,6 @@
 """Build-inspectors TUI: list view, add/edit flows, and main loop.
 
-Part of the bead_factory inspectors menu, ported from the core goal-judges
-menu (judge -> inspector rename, config repointed at inspectors.json). The
-add/edit form and display helpers live in :mod:`inspectors_menu_form`; this
+The add/edit form and display helpers live in :mod:`inspectors_menu_form`; this
 module owns the split-panel list view, the add/edit orchestration flows, and
 the main TUI loop. Split out of a single module purely to honor the 600-line
 cap -- the two halves are cohesive (form vs. list-loop).

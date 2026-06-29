@@ -1,9 +1,7 @@
 """Inline banner rendering for the bead_factory build subsystem.
 
-Relocated from the former ``wiggum`` plugin's ``register_callbacks.py`` banner
-helpers. The verifier vocabulary is renamed to "inspectors": the banner uses
-the color key ``"bf_inspector"`` with the label ``"INSPECTOR"``, deliberately
-chosen so it does not collide with wiggum's original banner key/label.
+The build-completion verifier vocabulary is "inspectors": the banner uses the
+color key ``"bf_inspector"`` with the label ``"INSPECTOR"``.
 """
 
 from __future__ import annotations

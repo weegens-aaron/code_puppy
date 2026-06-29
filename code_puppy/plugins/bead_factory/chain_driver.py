@@ -47,7 +47,7 @@ from code_puppy.messaging import (
 # ---------------------------------------------------------------------------
 #
 # bead-factory is NOT a build engine — it's a queue driver that delegates the
-# LLM-judged completion loop to the build loop. The per-turn decision lives in
+# LLM-inspected completion loop to the build loop. The per-turn decision lives in
 # :mod:`build_loop` and its state in :mod:`build_state`; both ship inside this
 # package, so we import them directly.
 from . import build_loop
@@ -215,7 +215,7 @@ def handle_bead_factory_command(command: str) -> str | bool:
     # blocked stranded bead, so this should never fire. If it does — bd
     # version drift, or a ``blocks`` edge wired between the probe and now
     # — we refuse to start work that ``bd close`` will later reject. This
-    # is the bdboard-oals fix: respect work-time blocks at claim time.
+    # is the blocks-at-claim-time fix: respect work-time blocks at claim time.
     blockers = open_blocker_ids(bead_id)
     if blockers:
         emit_warning(
@@ -263,7 +263,7 @@ def handle_bead_factory_command(command: str) -> str | bool:
 
     state.get_state().current_bead = bead
 
-    # FB-8 (bead_chain-9n3): map the bead's recognized execution_* metadata
+    # FB-8: map the bead's recognized execution_* metadata
     # hints (effort/model/agent_type) onto code-puppy's serial knobs before
     # arming the build loop, so they shape this build pass. Soft-fails per hint and
     # is a no-op when the bead carries no recognized metadata.
@@ -317,11 +317,11 @@ async def _on_interactive_turn_end(
         return None
 
     # The build loop just stopped — that means the bead is either complete
-    # (judges passed) or the build loop cancelled. We can't distinguish here,
+    # (inspectors passed) or the build loop cancelled. We can't distinguish here,
     # but interactive_turn_cancel runs for cancellation and would have
     # already stopped us; so reaching this branch with state.active
     # still True implies success.
-    # bead_chain-u0b: close_current_bead_success() shells out to `bd`
+    # close_current_bead_success() shells out to `bd`
     # (bd close / bd show / bd update) synchronously. Running it inline
     # here would block code_puppy's interactive event loop for the
     # duration of the subprocess — up to ~45s worst case under retries.
@@ -341,7 +341,7 @@ async def _on_interactive_turn_end(
     # bead on top of the one we couldn't close.
     if not state.is_active():
         return None
-    # NOTE: Per-bead rollup removed (bead_chain-tfn fix).
+    # NOTE: Per-bead rollup removed.
     #
     # The cascade mechanism in ``bd epic close-eligible`` runs server-side:
     # closing A's last child closes A, then checks if A's parent B is now
@@ -363,7 +363,7 @@ async def _on_interactive_turn_end(
     # activate_next_bead, where we actually know which bead got
     # claimed. Doing it here would be premature.
     #
-    # bead_chain-u0b: activate_next_bead() is the other bd-heavy call in
+    # activate_next_bead() is the other bd-heavy call in
     # this hook (pick_next_bead → bd ready/list/show, claim, gate/rollup
     # probes). Off-load it to a worker thread for the same reason as the
     # close above. It runs strictly AFTER the close has fully completed

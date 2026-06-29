@@ -1,6 +1,6 @@
 """Mutating ``bd`` calls + epic/gate/lint housekeeping for bead-factory.
 
-The write half of the original monolithic ``beads.py`` (bead_chain-7xv):
+The write half of the original monolithic ``beads.py``:
 state mutations (``claim`` / ``revert_to_open`` / ``close``) plus the
 epic-rollup, gate-probe and lint-warning housekeeping that close the
 chain's loops. Its sibling :mod:`beads_reads` owns the read/query
@@ -56,7 +56,7 @@ def revert_to_open(bead_id: str) -> None:
 
     * the user cancels a chain (Ctrl+C / runtime cancel) — work isn't
       complete, but the bead shouldn't sit claimed forever, and
-    * ``bd close`` fails on judge-passed completion — the bead is
+    * ``bd close`` fails on inspector-passed completion — the bead is
       still legitimately not-done; keeping it claimed would leak into
       the next run's recovery flow.
 
@@ -103,7 +103,7 @@ def has_epic_in_progress() -> bool:
 def close_eligible_epics() -> list[dict[str, Any]]:
     """Close every epic whose children are all complete; return the closed ones.
 
-    **Conservative approach (bead_chain-tfn fix):** The original cascade
+    **Conservative approach (over-close bug fix):** The original cascade
     mechanism in ``bd epic close-eligible`` was too aggressive, sweeping up
     unrelated epics and their children when closing a set of molecule beads.
 
@@ -141,7 +141,7 @@ def close_eligible_epics() -> list[dict[str, Any]]:
       * Some shapes wrap each closed epic as ``{"epic": {...}}``; we
         unwrap to the inner dict.
 
-    **Recurring-molecule protection (bead_chain-wot / formulas#2):** a
+    **Recurring-molecule protection (formulas#2):** a
     poured ``patrol`` molecule is a *recurring* monitor — closing its
     epic when its current children finish would kill the recurrence.
     ``bd epic close-eligible`` has no exclude flag, so we can't tell it
@@ -150,7 +150,7 @@ def close_eligible_epics() -> list[dict[str, Any]]:
     and check each candidate via :func:`is_recurring_epic`:
 
       * No recurring epic eligible → fast path: run bd's native one-shot
-        cascade (preserves the bead_chain-tfn once-per-session
+        cascade (preserves the once-per-session
         behaviour and every existing rollup test).
       * ≥1 recurring epic eligible → we must NOT run the bulk close (it
         would sweep the patrol epic too). Close each *non*-recurring
@@ -331,10 +331,10 @@ def lint_warnings(bead_id: str) -> list[str]:
     issue for the *recommended* sections its type requires (e.g. a
     ``task`` should carry ``## Acceptance Criteria``; an ``epic`` should
     carry ``## Success Criteria``) and reports the missing ones. The
-    coverage audit (FB-5, ``bead_chain-vmo``) found bead-factory drove
+    coverage audit (FB-5) found bead-factory drove
     beads straight off ``bd ready`` without ever consulting this
     contract, so a bead that lost its ``## Acceptance Criteria`` to a
-    ``--graph`` import would be graded by the LLM judges against a
+    ``--graph`` import would be graded by the LLM inspectors against a
     section the agent was never shown was missing. Surfacing the lint
     output into the build prompt closes that blind spot (pairs with FB-2,
     which renders the criteria that *are* present).

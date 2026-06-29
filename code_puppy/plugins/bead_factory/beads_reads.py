@@ -1,7 +1,7 @@
 """Read-only ``bd`` queries for bead-factory (queue waterfall + introspection).
 
 This module is one of two domain splits carved out of the original
-monolithic ``beads.py`` (bead_chain-7xv): it owns every **read** path —
+monolithic ``beads.py``: it owns every **read** path —
 the ``bd ready`` / ``bd list`` queue waterfall and the per-bead
 introspection helpers (``show``, ``memories``, blocker/pin checks). Its
 sibling :mod:`beads_writes` owns mutations and epic/gate housekeeping,
@@ -137,8 +137,8 @@ def _list_by_status(*statuses: str) -> list[dict[str, Any]]:
 
     bd's ``--status`` flag accepts a comma-separated list (``bd list
     --status open,in_progress``), so **N statuses cost a single
-    subprocess spawn**, not N. This is the consolidation behind
-    bead_chain-lqf: ``list_recoverable_strands`` used to fan out one
+    subprocess spawn**, not N. This is the consolidation:
+    ``list_recoverable_strands`` used to fan out one
     ``bd list`` call per recoverable status; it now issues exactly one.
     """
     status_arg = ",".join(statuses)
@@ -160,7 +160,7 @@ def list_recoverable_strands() -> list[dict[str, Any]]:
     ``bd ready`` (hooked is out of the ready frontier) AND recovery —
     stranded work that no run ever resumed. We now query every status in
     :data:`RECOVERABLE_STATUSES` in **one** ``bd list --status=a,b``
-    subprocess call (bead_chain-lqf: the prior implementation fanned out
+    subprocess call (the prior implementation fanned out
     one spawn per status).
 
     Ordering: in_progress strands come first, hooked strands follow,
@@ -202,7 +202,7 @@ def next_in_progress() -> dict[str, Any] | None:
     """Return the first in_progress non-epic bead, or ``None``.
 
     Used by bead-factory to detect *stranded* work from a previous run
-    that errored or was cancelled before the LLM judges could rule.
+    that errored or was cancelled before the LLM inspectors could rule.
     The deliberate one-bead-at-a-time discipline (no token firehose,
     GasTown-style steady progress) means there should be **at most
     one** such bead at any time — if we find one, the previous run
@@ -522,7 +522,7 @@ def memories() -> dict[str, str]:
     Bridges bd's memory layer (``bd remember`` / ``bd memories`` /
     ``bd prime``'s '## Persistent Memories' section) into bead-factory so a
     freshly-spawned working agent starts warm instead of cold
-    (coverage-audit gap FB-6, ``bead_chain-ndt``).
+    (coverage-audit gap FB-6).
 
     ``bd memories --json`` returns a JSON *object* (not a list) mapping
     each memory's key to its insight text, plus bookkeeping keys we strip

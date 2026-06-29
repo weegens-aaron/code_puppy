@@ -85,7 +85,7 @@ _BEAD_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 # like 'bead not found', 'already closed') — are NOT retried; those are
 # fatal and retrying just delays the truth (and burns wall-clock).
 #
-# WORST-CASE BUDGET (bead_chain-7b6): the old policy (DEFAULT_TIMEOUT=30,
+# WORST-CASE BUDGET: the old policy (DEFAULT_TIMEOUT=30,
 # backoffs 0.5/1.0) cost up to 91.5s per call (30 + 0.5 + 30 + 1.0 + 30).
 # With 10+ sequential calls per activation a flaky bd binary could add
 # minutes of pure infra overhead to a single bead. The current policy
@@ -138,15 +138,15 @@ EXCLUDED_TYPES: tuple[str, ...] = ("epic", "milestone", "gate", "molecule")
 # Molecule types whose live epic must SURVIVE rollup. A poured ``patrol``
 # molecule is a *recurring* monitoring loop: once its current children
 # close, its epic is eligible for ``bd epic close-eligible`` — but closing
-# it would defeat the recurrence (coverage-audit gap formulas#2,
-# bead_chain-wot). We refuse to auto-close epics tagged as one of these.
+# it would defeat the recurrence (coverage-audit gap formulas#2).
+# We refuse to auto-close epics tagged as one of these.
 # Matched case-insensitively against a ``mol_type``-style field. Extend
 # this tuple if other recurring molecule types appear — one-line change.
 RECURRING_MOL_TYPES: tuple[str, ...] = ("patrol",)
 
 # Field names that *might* carry a molecule's type. bd 1.0.4 does NOT
 # surface mol-type on ``bd show`` / ``epic close-eligible --json`` (verified
-# the hard way — see bead_chain-wot), so today the *label* contract below
+# the hard way), so today the *label* contract below
 # is the real signal; these keys are forward-compat for a bd that starts
 # emitting the type directly (checked both top-level and inside metadata).
 _MOL_TYPE_KEYS: tuple[str, ...] = ("mol_type", "mol-type", "molecule_type")
@@ -480,7 +480,7 @@ def _run_bd(*args: str, timeout: float = DEFAULT_TIMEOUT) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Facade re-exports (bead_chain-7xv split)
+# Facade re-exports
 # ---------------------------------------------------------------------------
 # The read/query waterfall and the mutation + epic/gate/lint housekeeping were
 # carved out of this once-monolithic module (1271 lines, ~2x the 600-line cap)

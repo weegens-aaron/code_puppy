@@ -11,7 +11,7 @@ practice. bead-factory's coordinating hooks (command / turn-end /
 turn-cancel) all fire on code_puppy's single interactive event loop, and
 they never run concurrently with one another.
 
-Note (bead_chain-u0b): ``_on_interactive_turn_end`` now off-loads its
+Note: ``_on_interactive_turn_end`` now off-loads its
 ``bd`` subprocess work to a worker thread via ``asyncio.to_thread`` so the
 event loop stays responsive. That work — ``close_current_bead_success``
 then ``activate_next_bead`` — mutates this box from the worker thread.

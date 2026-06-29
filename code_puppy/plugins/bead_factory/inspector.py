@@ -1,9 +1,5 @@
 """LLM inspector helpers for build mode.
 
-Relocated from the former ``wiggum`` plugin's build-completion verifier module
-and renamed to the "inspectors" vocabulary (pure rename, zero behavior change).
-Imports are rewired to the ``code_puppy.plugins.bead_factory`` namespace.
-
 An inspector is a small, read-only pydantic_ai Agent that examines the
 implementor's latest response (and optionally its message history) and
 returns a structured verdict: complete/not + remediation notes.

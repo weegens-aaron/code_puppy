@@ -1,8 +1,8 @@
-"""Molecule fan-out gate aggregation mode (FB-13, bead_chain-y0s).
+"""Molecule fan-out gate aggregation mode (FB-13).
 
-Extracted verbatim from :mod:`lifecycle` during the bead_factory migration so
-this self-contained gate logic lives in one cohesive module; behavior is
-unchanged. :func:`lifecycle.activate_next_bead` calls
+Split out of :mod:`lifecycle` so this self-contained gate logic lives in one
+cohesive module; behavior is unchanged. :func:`lifecycle.activate_next_bead`
+calls
 :func:`_fan_out_gate_verdict` to decide whether a candidate bead's fan-out
 gate is satisfied before claiming it.
 
@@ -128,9 +128,9 @@ def _fan_out_gate_verdict(
     """Evaluate ``bead_id``'s molecule fan-out gate, honoring its mode.
 
     Beads with ``waits_for: children-of(spawner)`` are invisible to
-    ``bd blocked`` (bead_chain-9sc upstream bug), so bead-factory evaluates
+    ``bd blocked`` (upstream bd bug), so bead-factory evaluates
     the gate itself at claim time. The verdict honors the aggregation
-    mode (FB-13, bead_chain-y0s):
+    mode (FB-13):
 
     * **any-children** — unsatisfied only while *no* child has closed yet;
       satisfied the moment the first child closes.
@@ -140,7 +140,7 @@ def _fan_out_gate_verdict(
       conservative all-children rule for the *block* decision, but flagged
       ``mode_known=False`` so the caller skips the destructive revert.
 
-    Call consolidation (bead_chain-lqf): pass an already-fetched
+    Call consolidation: pass an already-fetched
     ``bd show`` record as ``bead`` to avoid a redundant spawn. The
     spawner lookup is always a separate ``bd show`` — a different bead.
 

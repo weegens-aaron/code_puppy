@@ -1,9 +1,6 @@
 """State for the bead_factory build continuation policy.
 
-Relocated from the former ``wiggum`` plugin (``state.py``) with imports
-rewired to the ``code_puppy.plugins.bead_factory`` namespace. Behavior is
-identical -- this is a dumb data box; the build orchestration lives in
-``build_loop.py``.
+This is a dumb data box; the build orchestration lives in ``build_loop.py``.
 
 Note: this is intentionally a *separate* module from bead_factory's
 ``state.py`` (which holds bead-factory's ``ChainState``). The two singletons

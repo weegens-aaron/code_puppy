@@ -30,14 +30,12 @@ from code_puppy.messaging import (
 from . import state
 
 try:
-    # bead-factory is a queue driver that delegates the LLM-judged completion
-    # loop to the build loop. Post-merge that loop lives IN THIS
-    # package — its state is the in-package :mod:`build_state` module (no more
-    # cross-import of ``code_puppy.plugins.wiggum``). We keep the defensive
-    # import so this module still imports cleanly if build_state is somehow
-    # broken: chain_driver gates every code path that would actually call
-    # build_state behind an availability check, so a None here is never
-    # dereferenced. (bead_chain-c87)
+    # bead-factory is a queue driver that delegates the LLM-inspected completion
+    # loop to the build loop. That loop lives IN THIS package — its state is
+    # the in-package :mod:`build_state` module. We keep the defensive import
+    # so this module still imports cleanly if build_state is somehow broken:
+    # chain_driver gates every code path that would actually call build_state
+    # behind an availability check, so a None here is never dereferenced.
     from . import build_state
 except ImportError:  # pragma: no cover - exercised via chain_driver
     build_state = None  # type: ignore[assignment]
@@ -78,7 +76,7 @@ __all__ = [
 ]
 
 # Statuses that mark a picked bead as *already in flight* — i.e. residue
-# from a prior run that crashed/cancelled before the LLM judges could
+# from a prior run that crashed/cancelled before the LLM inspectors could
 # rule. A bead in any of these was claimed (or hooked) but not closed,
 # so bead-factory *recovers* it (re-drives with the recovery preamble)
 # rather than re-claiming. Sourced from :data:`beads.RECOVERABLE_STATUSES`
@@ -121,7 +119,7 @@ def _unblocked_strands() -> list[dict[str, Any]]:
     lifecycle#2).
 
     A stranded bead with open ``blocks`` dependencies must **never** be
-    re-driven — that is the bdboard-oals bug: the recovery tier bypasses
+    re-driven — this is the bug we prevent: the recovery tier bypasses
     the ready frontier, so a bead claimed-while-ready and later
     re-blocked would get run to completion and only trip at ``bd
     close``. We refuse to perpetuate that: any blocked stranded bead is
@@ -185,7 +183,7 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
 
     Beads with open work-time blockers are filtered out (and reverted
     to open) by :func:`_unblocked_strands` before any of the above
-    — a blocked stranded bead is never recovered/re-driven (bdboard-oals).
+    — a blocked stranded bead is never recovered/re-driven.
 
     Soft-fails by design: a bd outage here shouldn't block the chain
     from running. If listing fails we emit a warning and return
@@ -233,7 +231,7 @@ def pick_next_bead(
 
     0. **Stranded in_progress bead.** If any non-epic bead is already
        in_progress, a previous run errored or was cancelled before the
-       judges could close it. Recovery beats every other rule — the
+       inspectors could close it. Recovery beats every other rule — the
        one-bead-at-a-time discipline means there can only be one in
        flight, so we must finish (or formally close) this one before
        starting anything new.
@@ -250,13 +248,13 @@ def pick_next_bead(
     and tiers 1-3 (which come from ``bd ready`` and so *should* already
     be unblocked) get a belt-and-suspenders :func:`beads.is_blocked`
     recheck — defence-in-depth against bd version drift, mirroring the
-    epic ``--exclude-type`` filter. This is the bdboard-oals fix: the
+    epic ``--exclude-type`` filter. This is the blocks-at-claim-time fix: the
     chain respects blocks at claim/start time, not just at close.
 
     Raises :class:`BeadsError` on infrastructure failure so the caller
     can stop the chain cleanly.
 
-    .. note:: **Pick-then-activate race (bead_chain-hvi).** The bead this
+    .. note:: **Pick-then-activate race.** The bead this
        returns is read from the ready queue, not yet claimed. Another
        agent can claim it in the window before
        :func:`activate_next_bead` calls ``claim()``. That race is a known,
@@ -300,7 +298,7 @@ def _reject_if_blocked(bead: dict[str, Any] | None, tier: str) -> bool:
     from ``bd ready`` (server-side blocker-filtered) and so should
     never be blocked. If one ever is — bd version drift, a ``blocks``
     edge wired between the ``ready`` query and now — we refuse to drive
-    it rather than barrel into the close-time failure (bdboard-oals).
+    it rather than barrel into the close-time failure.
     """
     if not bead:
         return False
@@ -333,7 +331,7 @@ def activate_next_bead(
     # Safety brake: stop before we even look at the queue if the
     # next activation would push us past the user-set cap. We check
     # *before* picking a bead so we don't waste a `bd ready` call.
-    # NB: we do NOT close the current bead here — judges already
+    # NB: we do NOT close the current bead here — inspectors already
     # closed it in the previous turn (via close_current_bead_success)
     # before this iteration began.
     s = state.get_state()
@@ -353,7 +351,7 @@ def activate_next_bead(
         return None
 
     if bead is None:
-        # Empty-queue gate probe (bead_chain-x3g / FB-3): before we declare
+        # Empty-queue gate probe (FB-3): before we declare
         # the chain done, ask bd to re-evaluate every open gate. Resolvable
         # gate types (timer / gh:run / gh:pr / bead) keep their targets out
         # of `bd ready` until the gate closes, and nothing else in
@@ -371,7 +369,7 @@ def activate_next_bead(
 
     if bead is None:
         # Drain pass: at session end, sweep any epics whose final child we
-        # just closed. Per bead_chain-tfn (over-close bug fix), we call
+        # just closed. Per the over-close bug fix, we call
         # rollup_completed_epics() ONLY HERE at the end of a session
         # (when the queue is empty), NOT after every individual bead close.
         #
@@ -417,7 +415,7 @@ def activate_next_bead(
     bead_id = str(bead.get("id", ""))
     recovery = is_recovery_bead(bead)
 
-    # Call consolidation (bead_chain-lqf): both the work-time blocker
+    # Call consolidation: both the work-time blocker
     # guard and the fan-out gate guard below need this bead's FULL
     # ``bd show`` record (the ``bd ready`` / ``bd list`` dict the picker
     # handed us lacks per-dependency status and the ``waits_for`` field).
@@ -438,7 +436,7 @@ def activate_next_bead(
     # still reached here (e.g. a ``blocks`` edge wired in the moment
     # between pick and activate), refuse to claim/drive it rather than
     # running blocked work that ``bd close`` will later reject. This is
-    # the bdboard-oals fix mirrored at the activation boundary. Recovery
+    # the blocks-at-claim-time fix mirrored at the activation boundary. Recovery
     # beads are exempt from the revert path here (they were already
     # blocker-filtered in :func:`_unblocked_strands`); we just stop
     # if somehow one is blocked, leaving it in_progress for inspection.
@@ -458,10 +456,10 @@ def activate_next_bead(
         state.stop()
         return None
 
-    # WORKAROUND (bead_chain-9sc): Check for unsatisfied fan-out gates.
+    # WORKAROUND (bd ``blocked`` gap): Check for unsatisfied fan-out gates.
     # Beads with waits_for: children-of(...) are invisible to bd blocked,
     # so we detect and refuse to claim them here. Reuses ``full_bead``
-    # fetched above (bead_chain-lqf) so we don't re-spawn ``bd show``.
+    # fetched above so we don't re-spawn ``bd show``.
     fan_out = _fan_out_gate_verdict(bead_id, full_bead)
     if fan_out.blocked:
         emit_warning(
@@ -469,7 +467,7 @@ def activate_next_bead(
             "fan-out gate (waits_for: children-of(...) with unclosed spawned "
             "children). Stopping chain to avoid driving work that isn't ready yet."
         )
-        # FB-13 (bead_chain-y0s): only revert when bd actually surfaced the
+        # FB-13: only revert when bd actually surfaced the
         # aggregation mode. When the mode is unknown, the gate *might* be
         # ``any-children`` and already satisfied — reverting would strand
         # that otherwise-ready waiter at ``open``. So we still stop the
@@ -501,7 +499,7 @@ def activate_next_bead(
     ensure_epic_in_progress(bead)
 
     if not recovery:
-        # KNOWN RACE — pick-then-activate (bead_chain-hvi):
+        # KNOWN RACE — pick-then-activate:
         # There is an unavoidable window between pick_next_bead() reading
         # the ready queue (`bd ready` / `bd list`) and this claim() call
         # flipping the bead to in_progress. In that gap a *different* agent
@@ -540,7 +538,7 @@ def activate_next_bead(
 
     state.get_state().current_bead = bead
 
-    # FB-8 (bead_chain-9n3): apply the bead's recognized execution_*
+    # FB-8: apply the bead's recognized execution_*
     # metadata hints (effort/model/agent_type) to the serial drive before
     # arming the build loop. Soft-fails per hint; no-op when none are present.
     applied_hints = apply_execution_hints(bead)

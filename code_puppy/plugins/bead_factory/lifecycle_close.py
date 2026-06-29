@@ -49,8 +49,7 @@ __all__ = [
 # string, so a substring match against ``str(exc)`` is the authoritative
 # (if string-keyed) signal. We keep the match deliberately NARROW: on any
 # miss we degrade to the historical halt-loudly behavior, which is safe —
-# never silent. See ADR 0004
-# (notes/decisions/0004-close-failure-blocked-is-recoverable.md).
+# never silent.
 _BLOCKED_CLOSE_MARKER: str = "blocked by open issue"
 
 
@@ -79,7 +78,7 @@ def close_current_bead_success() -> dict[str, Any] | None:
     epic's work).
 
     **Close-failure handling.** If ``bd close`` raises, we split on the
-    error class (ADR 0004 — *a "blocked by open issues" close failure is
+    error class (*a "blocked by open issues" close failure is
     recoverable, not a chain-halt*):
 
       * **Recoverable — "blocked by open issue(s)".** bd refused because
@@ -177,9 +176,9 @@ def close_current_bead_success() -> dict[str, Any] | None:
         return just_closed
 
     try:
-        close(bead_id, reason="bead-factory: LLM judges passed")
+        close(bead_id, reason="bead-factory: LLM inspectors passed")
     except BeadsError as exc:
-        # Two distinct error classes hide behind one BeadsError (ADR 0004):
+        # Two distinct error classes hide behind one BeadsError:
         #
         #   1. RECOVERABLE — bd refused because a blocker is still open
         #      (e.g. a bug filed mid-run with --blocks=<this bead> per the
@@ -222,7 +221,7 @@ def close_current_bead_success() -> dict[str, Any] | None:
         # Leave the bead in_progress on purpose — see docstring.
         # The next /bead-factory run will recover it via tier-0 and
         # re-prompt with the recovery preamble so the agent assesses
-        # current state (which may already satisfy the judges) before
+        # current state (which may already satisfy the inspectors) before
         # doing any new work.
         emit_warning(
             f"🔖 Bead {bead_id} left in_progress — the next /bead-factory run "
@@ -245,7 +244,7 @@ def rollup_completed_epics() -> None:
 
     Called **once per session** when the queue is empty (drain pass in
     :func:`activate_next_bead`), NOT after every individual child close.
-    This is mitigation for the over-close bug (bead_chain-tfn): bd's
+    This is mitigation for the over-close bug: bd's
     ``epic close-eligible`` cascade can unexpectedly close unrelated
     epics if called too frequently. By calling once-per-session, we
     dramatically reduce the surface for unintended side effects.

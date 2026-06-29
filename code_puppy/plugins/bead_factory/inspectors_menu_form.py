@@ -1,10 +1,6 @@
 """Add/edit form + display helpers for the build-inspectors TUI.
 
-Ported into the bead_factory plugin from the core goal-judges menu
-(judge -> inspector rename, config repointed at inspectors.json). The
-list view, add/edit flows, and main loop live in :mod:`inspectors_menu`.
-
-Original menu help:
+The list view, add/edit flows, and main loop live in :mod:`inspectors_menu`.
 
 A split-panel list (left = inspectors, right = preview), with an in-TUI
 form for adding/editing — no $EDITOR popout. Everything happens in
