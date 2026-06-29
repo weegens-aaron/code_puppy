@@ -2,7 +2,7 @@
 
 Coverage-audit gap formulas#4 (bead_chain-wot): if a wisp-type bead
 (heartbeat / ping / patrol / recovery) surfaced on ``bd ready`` it could
-be handed to ``/goal`` as if it were real code work. **Confirmed it does
+be handed to ``/build`` as if it were real code work. **Confirmed it does
 not:** ``bd ready`` excludes ephemeral issues *by default* — they appear
 only with the explicit ``--include-ephemeral`` flag, which bead-chain
 never passes. These tests lock that invariant in two ways:

@@ -484,7 +484,7 @@ def show(bead_id: str) -> dict[str, Any] | None:
     timeout, non-zero exit, garbage JSON) so callers can decide whether
     to soft-fail or escalate — same contract as :func:`next_ready`.
 
-    Used today only to fetch parent-epic context for the goal prompt;
+    Used today only to fetch parent-epic context for the build prompt;
     deliberately kept generic so future enhancements (e.g. surfacing
     blocker reasons in the prompt) can reuse it without churn.
     """
@@ -510,7 +510,7 @@ def show(bead_id: str) -> dict[str, Any] | None:
 
 
 # Keys that ``bd memories --json`` emits as bookkeeping rather than as a
-# real, agent-facing insight. We drop these so the goal-prompt digest is
+# real, agent-facing insight. We drop these so the build-prompt digest is
 # all signal. Currently just bd's payload version stamp; extend if bd
 # starts mixing more metadata into the same object.
 _NON_MEMORY_KEYS: frozenset[str] = frozenset({"schema_version"})

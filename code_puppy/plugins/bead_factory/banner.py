@@ -1,4 +1,4 @@
-"""Inline banner rendering for the bead_factory goal/loop subsystem.
+"""Inline banner rendering for the bead_factory build subsystem.
 
 Relocated from the former ``wiggum`` plugin's ``register_callbacks.py`` banner
 helpers. The verifier vocabulary is renamed to "inspectors": the banner uses
@@ -52,7 +52,7 @@ def display_banner_message(
 def display_inspector(
     message: str, details: str | None = None, *, final: bool = False
 ) -> None:
-    """Display goal-inspector output with an inline banner."""
+    """Display build-inspector output with an inline banner."""
     display_banner_message(
         "INSPECTOR",
         message,

@@ -1,4 +1,4 @@
-"""Goal-inspectors TUI: list view, add/edit flows, and main loop.
+"""Build-inspectors TUI: list view, add/edit flows, and main loop.
 
 Part of the bead_factory inspectors menu, ported from the core goal-judges
 menu (judge -> inspector rename, config repointed at inspectors.json). The
@@ -55,7 +55,7 @@ def _render_menu(
     total_pages = get_total_pages(len(inspectors), PAGE_SIZE)
     start, end = get_page_bounds(page, len(inspectors), PAGE_SIZE)
 
-    lines.append(("bold", "Goal Inspectors"))
+    lines.append(("bold", "Build Inspectors"))
     lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{max(total_pages, 1)})"))
     lines.append(("", "\n\n"))
 
@@ -193,7 +193,7 @@ async def _edit_inspector_flow(current: InspectorConfig) -> Optional[str]:
 
 
 async def interactive_inspectors_menu() -> None:
-    """Open the goal-inspectors TUI. Returns when the user closes the menu."""
+    """Open the build-inspectors TUI. Returns when the user closes the menu."""
     registry = load_inspectors()
     inspectors = list(registry.inspectors)
 

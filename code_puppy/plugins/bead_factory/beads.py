@@ -120,7 +120,7 @@ def _retry_backoff(attempt: int) -> float:
 
 # Bead types that /bead-chain must never try to drive directly.
 # These are container / handle types: they organise or gate *other*
-# work and have no code work of their own, so handing one to /goal
+# work and have no code work of their own, so handing one to the build loop
 # produces a bead that can't be completed — close_guard then refuses
 # the close and the whole chain stalls.
 #

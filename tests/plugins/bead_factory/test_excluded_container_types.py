@@ -3,7 +3,7 @@
 FB-1. ``EXCLUDED_TYPES`` originally held only ``("epic",)``. The other
 bd container / handle types — ``milestone`` (anatomy#4), ``gate``
 (gates#2) and ``molecule`` (swarms#1) — could surface as ready leaves
-on ``bd ready``. ``next_ready()`` would then hand one to /goal as if it
+on ``bd ready``. ``next_ready()`` would then hand one to /build as if it
 were code work; the container has nothing to *do*, so ``close_guard``
 refuses the close and the whole chain stalls.
 

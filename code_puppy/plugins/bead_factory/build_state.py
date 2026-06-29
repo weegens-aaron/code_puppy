@@ -1,9 +1,9 @@
-"""State for the bead_factory loop/goal continuation policy.
+"""State for the bead_factory build continuation policy.
 
 Relocated from the former ``wiggum`` plugin (``state.py``) with imports
 rewired to the ``code_puppy.plugins.bead_factory`` namespace. Behavior is
-identical -- this is a dumb data box; the loop/goal orchestration lives in
-``goal_loop.py``.
+identical -- this is a dumb data box; the build orchestration lives in
+``build_loop.py``.
 
 Note: this is intentionally a *separate* module from bead_factory's
 ``state.py`` (which holds bead-chain's ``BeadChainState``). The two singletons
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class WiggumState:
+class BuildState:
     """Tiny state container. No behavior soup, please and thank you."""
 
     active: bool = False
@@ -41,10 +41,10 @@ class WiggumState:
         return self.loop_count
 
 
-_STATE = WiggumState()
+_STATE = BuildState()
 
 
-def get_state() -> WiggumState:
+def get_state() -> BuildState:
     return _STATE
 
 

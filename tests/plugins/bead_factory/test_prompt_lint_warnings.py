@@ -1,16 +1,16 @@
-"""Unit tests for the template-lint-warnings block in the goal prompt.
+"""Unit tests for the template-lint-warnings block in the build prompt.
 
 Coverage-audit gap FB-5 (``bead_chain-vmo``): bead-chain drove beads off
 ``bd ready`` without ever consulting the template contract, so a bead
 that lost its ``## Acceptance Criteria`` to a ``--graph`` import would be
 graded by the LLM judges against a section the prompt never showed was
-missing. ``format_bead_as_goal`` now runs ``bd lint <id>`` on the claim
+missing. ``format_bead_as_build`` now runs ``bd lint <id>`` on the claim
 path and folds the missing sections into a ``## Template Lint Warnings``
 block. These tests pin:
 
 * the pure :func:`prompt._format_lint_warnings_block` helper,
 * the impure :func:`prompt._fetch_lint_warnings` soft-fail contract,
-* the wiring in :func:`prompt.format_bead_as_goal` (present / absent /
+* the wiring in :func:`prompt.format_bead_as_build` (present / absent /
   placement / preamble interaction).
 
 Imports go through the registered package (conftest sets it up) because
@@ -43,7 +43,7 @@ def _base_bead(**extra) -> dict:
 
 
 def _stub_lint(monkeypatch, value):
-    """Force ``format_bead_as_goal`` to see exactly ``value`` warnings."""
+    """Force ``format_bead_as_build`` to see exactly ``value`` warnings."""
     monkeypatch.setattr(prompt, "_fetch_lint_warnings", lambda _bead_id: value)
 
 
@@ -90,20 +90,20 @@ def test_fetch_soft_fails_on_beads_error(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: present case
+# format_bead_as_build: present case
 # --------------------------------------------------------------------------
 
 
 def test_present_warnings_render_under_heading(monkeypatch):
     _stub_lint(monkeypatch, ["## Acceptance Criteria"])
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _HEADING in out
     assert "- ## Acceptance Criteria" in out
 
 
 def test_warnings_appear_before_done_checklist(monkeypatch):
     _stub_lint(monkeypatch, ["## Acceptance Criteria"])
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert out.index(_HEADING) < out.index("When you believe this is done:")
 
 
@@ -111,27 +111,27 @@ def test_warnings_after_acceptance_block(monkeypatch):
     """Acceptance (what's present) leads; lint (what's missing) follows."""
     _stub_lint(monkeypatch, ["## Acceptance Criteria"])
     bead = _base_bead(acceptance_criteria="- partial criteria")
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert out.index("## Acceptance Criteria") < out.index(_HEADING)
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: absent / clean -> prompt unchanged
+# format_bead_as_build: absent / clean -> prompt unchanged
 # --------------------------------------------------------------------------
 
 
 def test_clean_bead_no_heading(monkeypatch):
     _stub_lint(monkeypatch, [])
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _HEADING not in out
 
 
 def test_clean_vs_warned_only_differ_by_block(monkeypatch):
     _stub_lint(monkeypatch, [])
-    clean = prompt.format_bead_as_goal(_base_bead())
+    clean = prompt.format_bead_as_build(_base_bead())
 
     _stub_lint(monkeypatch, ["## Acceptance Criteria"])
-    warned = prompt.format_bead_as_goal(_base_bead())
+    warned = prompt.format_bead_as_build(_base_bead())
 
     block = prompt._format_lint_warnings_block(["## Acceptance Criteria"])
     assert warned == clean.replace(
@@ -148,7 +148,7 @@ def test_clean_vs_warned_only_differ_by_block(monkeypatch):
 
 def test_recovery_prompt_still_surfaces_warnings(monkeypatch):
     _stub_lint(monkeypatch, ["## Acceptance Criteria"])
-    out = prompt.format_bead_as_goal(_base_bead(), recovery=True)
+    out = prompt.format_bead_as_build(_base_bead(), recovery=True)
     assert "RECOVERY MODE" in out
     assert _HEADING in out
 

@@ -1,4 +1,4 @@
-"""Tests for the parallel-inspectors orchestration in bead_factory/goal_loop."""
+"""Tests for the parallel-inspectors orchestration in bead_factory/build_loop."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.plugins.bead_factory import goal_loop, inspector_config
-from code_puppy.plugins.bead_factory.inspector import GoalInspection
+from code_puppy.plugins.bead_factory import build_loop, inspector_config
+from code_puppy.plugins.bead_factory.inspector import BuildInspection
 from code_puppy.plugins.bead_factory.inspector_config import InspectorConfig
 
 
@@ -31,32 +31,32 @@ def _fake_agent(name: str = "code-puppy", history: list | None = None):
     return agent
 
 
-def _verdict(name: str, *, complete: bool, notes: str = "") -> GoalInspection:
-    return GoalInspection(
+def _verdict(name: str, *, complete: bool, notes: str = "") -> BuildInspection:
+    return BuildInspection(
         inspector_name=name, complete=complete, notes=notes, raw_response=""
     )
 
 
 @pytest.mark.asyncio
-async def test_run_goal_inspectors_parallel_all_pass(isolated_inspectors):
-    """Two inspectors both pass with no notes => goal complete."""
+async def test_run_build_inspectors_parallel_all_pass(isolated_inspectors):
+    """Two inspectors both pass with no notes => build complete."""
     inspector_config.add_inspector(InspectorConfig(name="alpha", model="m1"))
     inspector_config.add_inspector(InspectorConfig(name="beta", model="m2"))
 
     call_log: list[str] = []
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         call_log.append(inspector_config.name)
         await asyncio.sleep(0.01)
         return _verdict(inspector_config.name, complete=True, notes="")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, notes, verdicts = await goal_loop._run_goal_inspectors(
+        all_complete, notes, verdicts = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -70,22 +70,22 @@ async def test_run_goal_inspectors_parallel_all_pass(isolated_inspectors):
 
 
 @pytest.mark.asyncio
-async def test_run_goal_inspectors_one_fails_means_incomplete(isolated_inspectors):
+async def test_run_build_inspectors_one_fails_means_incomplete(isolated_inspectors):
     inspector_config.add_inspector(InspectorConfig(name="alpha", model="m1"))
     inspector_config.add_inspector(InspectorConfig(name="beta", model="m2"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         if inspector_config.name == "alpha":
             return _verdict("alpha", complete=True, notes="")
         return _verdict("beta", complete=False, notes="tests are failing")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, notes, verdicts = await goal_loop._run_goal_inspectors(
+        all_complete, notes, verdicts = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -104,12 +104,12 @@ async def test_passing_inspector_with_rationale_notes_still_completes(
     """complete=True is the 'no remediation needed' signal.
 
     Notes alongside a passing verdict are rationale (e.g., "Yes, the response
-    satisfies the goal because..."), not remediation. They must not block
+    satisfies the build because..."), not remediation. They must not block
     completion — otherwise a verbose inspector keeps the loop going forever.
     """
     inspector_config.add_inspector(InspectorConfig(name="chatty", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         return _verdict(
             "chatty",
             complete=True,
@@ -117,12 +117,12 @@ async def test_passing_inspector_with_rationale_notes_still_completes(
         )
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, notes, _ = await goal_loop._run_goal_inspectors(
+        all_complete, notes, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -133,20 +133,20 @@ async def test_passing_inspector_with_rationale_notes_still_completes(
 
 @pytest.mark.asyncio
 async def test_inspector_exception_becomes_abstaining_verdict(isolated_inspectors):
-    """A crashed inspector abstains — doesn't get a vote, doesn't block goal."""
+    """A crashed inspector abstains — doesn't get a vote, doesn't block build."""
     inspector_config.add_inspector(InspectorConfig(name="crashy", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         raise RuntimeError("kaboom")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
         patch("code_puppy.error_logging.log_error"),
     ):
-        all_complete, notes, verdicts = await goal_loop._run_goal_inspectors(
+        all_complete, notes, verdicts = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -163,17 +163,17 @@ async def test_default_inspector_used_when_none_configured(isolated_inspectors):
     """No inspectors configured => synthesize a 'default' inspector w/ implementor's model."""
     seen_names: list[str] = []
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         seen_names.append(inspector_config.name)
         return _verdict(inspector_config.name, complete=True, notes="")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, notes, _ = await goal_loop._run_goal_inspectors(
+        all_complete, notes, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -188,19 +188,19 @@ async def test_inspectors_run_in_parallel_not_serial(isolated_inspectors):
     for n in ("a", "b", "c"):
         inspector_config.add_inspector(InspectorConfig(name=n, model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         await asyncio.sleep(0.2)
         return _verdict(inspector_config.name, complete=True, notes="")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
         loop = asyncio.get_running_loop()
         t0 = loop.time()
-        all_complete, _, _ = await goal_loop._run_goal_inspectors(
+        all_complete, _, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -216,18 +216,18 @@ async def test_remediation_notes_format(isolated_inspectors):
     inspector_config.add_inspector(InspectorConfig(name="a", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="b", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         if inspector_config.name == "a":
             return _verdict("a", complete=False, notes="missing tests\nadd them")
         return _verdict("b", complete=True, notes="")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        _, notes, _ = await goal_loop._run_goal_inspectors(
+        _, notes, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -240,22 +240,22 @@ async def test_remediation_notes_format(isolated_inspectors):
 
 @pytest.mark.asyncio
 async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_inspectors):
-    """When goal is incomplete, the next iteration's prompt must include the notes."""
-    from code_puppy.plugins.bead_factory import loop_state as state
+    """When build is incomplete, the next iteration's prompt must include the notes."""
+    from code_puppy.plugins.bead_factory import build_state as state
 
     state.start("fix the bug")
 
     inspector_config.add_inspector(InspectorConfig(name="checker", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         return _verdict("checker", complete=False, notes="bug still present in foo.py")
 
     try:
         with (
-            patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-            patch.object(goal_loop, "display_inspector"),
+            patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+            patch.object(build_loop, "display_inspector"),
         ):
-            next_request = await goal_loop.on_interactive_turn_end(
+            next_request = await build_loop.on_interactive_turn_end(
                 agent=_fake_agent(),
                 prompt="fix the bug",
                 result=MagicMock(output="I tried"),
@@ -264,7 +264,7 @@ async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_inspe
         state.stop()
 
     assert next_request is not None
-    assert next_request["reason"] == "goal"
+    assert next_request["reason"] == "build"
     assert next_request["clear_context"] is True
     assert "fix the bug" in next_request["prompt"]
     assert "bug still present in foo.py" in next_request["prompt"]
@@ -273,21 +273,21 @@ async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_inspe
 
 @pytest.mark.asyncio
 async def test_turn_end_stops_loop_on_full_success(isolated_inspectors):
-    from code_puppy.plugins.bead_factory import loop_state as state
+    from code_puppy.plugins.bead_factory import build_state as state
 
     state.start("ship it")
 
     inspector_config.add_inspector(InspectorConfig(name="checker", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         return _verdict("checker", complete=True, notes="")
 
     try:
         with (
-            patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-            patch.object(goal_loop, "display_inspector"),
+            patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+            patch.object(build_loop, "display_inspector"),
         ):
-            next_request = await goal_loop.on_interactive_turn_end(
+            next_request = await build_loop.on_interactive_turn_end(
                 agent=_fake_agent(),
                 prompt="ship it",
                 result=MagicMock(output="done"),
@@ -308,26 +308,26 @@ async def test_inspectors_running_in_parallel_dont_share_failure_state(
     """One inspector crashing must not prevent the other from returning a verdict.
 
     Crashed/erroring inspectors ABSTAIN — they're excluded from the tally and
-    don't block goal completion (see the 'endpoint errors should abstain'
-    bug fix). So crashy + ok=PASS means the goal completes.
+    don't block build completion (see the 'endpoint errors should abstain'
+    bug fix). So crashy + ok=PASS means the build completes.
     """
     inspector_config.add_inspector(InspectorConfig(name="ok", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="crashy", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         if inspector_config.name == "crashy":
             raise RuntimeError("boom")
         await asyncio.sleep(0.05)
         return _verdict("ok", complete=True, notes="")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
         patch("code_puppy.error_logging.log_error"),
     ):
-        all_complete, _, verdicts = await goal_loop._run_goal_inspectors(
+        all_complete, _, verdicts = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -335,7 +335,7 @@ async def test_inspectors_running_in_parallel_dont_share_failure_state(
     by_name = {v.inspector_name: v for v in verdicts}
     assert by_name["ok"].complete is True
     assert by_name["crashy"].abstained is True  # crashed → abstain
-    assert all_complete is True  # crashy excluded, ok passed → goal complete
+    assert all_complete is True  # crashy excluded, ok passed → build complete
 
 
 @pytest.mark.asyncio
@@ -350,7 +350,7 @@ async def test_display_serialized_after_parallel_run(isolated_inspectors):
     inspector_config.add_inspector(InspectorConfig(name="judy", model="m1"))
     inspector_config.add_inspector(InspectorConfig(name="joe-brown", model="m2"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         await asyncio.sleep(0.01)
         return _verdict(inspector_config.name, complete=True, notes="rationale")
 
@@ -360,12 +360,12 @@ async def test_display_serialized_after_parallel_run(isolated_inspectors):
         seen_messages.append(msg)
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector", side_effect=capture_display),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector", side_effect=capture_display),
     ):
-        await goal_loop._run_goal_inspectors(
+        await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -386,7 +386,7 @@ async def test_single_inspector_uses_singular_phrasing(isolated_inspectors):
     """When there's only one inspector, the announcement banner is more natural."""
     inspector_config.add_inspector(InspectorConfig(name="solo", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         return _verdict("solo", complete=True, notes="")
 
     seen: list[str] = []
@@ -395,12 +395,12 @@ async def test_single_inspector_uses_singular_phrasing(isolated_inspectors):
         seen.append(msg)
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector", side_effect=capture),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector", side_effect=capture),
     ):
-        await goal_loop._run_goal_inspectors(
+        await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -416,7 +416,7 @@ async def test_all_pass_with_rationale_completes(isolated_inspectors):
     inspector_config.add_inspector(InspectorConfig(name="a", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="b", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         return _verdict(
             inspector_config.name,
             complete=True,
@@ -424,12 +424,12 @@ async def test_all_pass_with_rationale_completes(isolated_inspectors):
         )
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, _, verdicts = await goal_loop._run_goal_inspectors(
+        all_complete, _, verdicts = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -450,7 +450,7 @@ async def test_brackets_in_inspector_name_are_preserved_in_display(isolated_insp
     inspector_config.add_inspector(InspectorConfig(name="joe-brown", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="judy", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         return _verdict(inspector_config.name, complete=True, notes="ok")
 
     captured: list[str] = []
@@ -459,12 +459,12 @@ async def test_brackets_in_inspector_name_are_preserved_in_display(isolated_insp
         captured.append(msg)
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector", side_effect=capture),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector", side_effect=capture),
     ):
-        await goal_loop._run_goal_inspectors(
+        await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -477,18 +477,18 @@ async def test_brackets_in_inspector_name_are_preserved_in_display(isolated_insp
 
 @pytest.mark.asyncio
 async def test_final_complete_banner_omits_notes_body(isolated_inspectors):
-    """When the goal completes, the final banner must NOT re-dump per-inspector notes.
+    """When the build completes, the final banner must NOT re-dump per-inspector notes.
 
-    Per-inspector lines are already shown by _run_goal_inspectors; dumping the full
-    notes block again into the final '✅ GOAL COMPLETE!' banner was the
+    Per-inspector lines are already shown by _run_build_inspectors; dumping the full
+    notes block again into the final '✅ BUILD COMPLETE!' banner was the
     'output shown twice' bug.
     """
-    from code_puppy.plugins.bead_factory import loop_state as state
+    from code_puppy.plugins.bead_factory import build_state as state
 
     state.start("say hi")
     inspector_config.add_inspector(InspectorConfig(name="judy", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         return _verdict("judy", complete=True, notes="some long rationale here")
 
     captured_args: list[tuple[tuple, dict]] = []
@@ -498,10 +498,10 @@ async def test_final_complete_banner_omits_notes_body(isolated_inspectors):
 
     try:
         with (
-            patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-            patch.object(goal_loop, "display_inspector", side_effect=capture),
+            patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+            patch.object(build_loop, "display_inspector", side_effect=capture),
         ):
-            await goal_loop.on_interactive_turn_end(
+            await build_loop.on_interactive_turn_end(
                 agent=_fake_agent(),
                 prompt="say hi",
                 result=MagicMock(output="hi"),
@@ -510,11 +510,11 @@ async def test_final_complete_banner_omits_notes_body(isolated_inspectors):
         if state.is_active():
             state.stop()
 
-    # Find the final "✅ GOAL COMPLETE!" call
+    # Find the final "✅ BUILD COMPLETE!" call
     completion_calls = [
         (args, kwargs)
         for args, kwargs in captured_args
-        if args and "GOAL COMPLETE" in args[0]
+        if args and "BUILD COMPLETE" in args[0]
     ]
     assert len(completion_calls) == 1
     args, kwargs = completion_calls[0]
@@ -526,10 +526,10 @@ async def test_final_complete_banner_omits_notes_body(isolated_inspectors):
 
 @pytest.mark.asyncio
 async def test_inspector_runs_inside_subagent_context(isolated_inspectors):
-    """inspect_goal must wrap inspector_agent.run() in subagent_context.
+    """inspect_build must wrap inspector_agent.run() in subagent_context.
 
     This is what suppresses the inspector's tool-call banners and intermediate
-    chatter (read_file, grep, agent reasoning, etc.) in the goal-loop UI.
+    chatter (read_file, grep, agent reasoning, etc.) in the build-loop UI.
     """
     from code_puppy.plugins.bead_factory import inspector as inspector_module
     from code_puppy.tools.subagent_context import is_subagent
@@ -541,11 +541,11 @@ async def test_inspector_runs_inside_subagent_context(isolated_inspectors):
     async def fake_run(_user_prompt, **_kwargs):
         # When the real inspector_agent.run() executes, is_subagent() should be True.
         # Accept arbitrary kwargs (e.g. usage_limits) so this stub keeps
-        # working as inspect_goal grows new pydantic_ai run options.
+        # working as inspect_build grows new pydantic_ai run options.
         saw_subagent_flag.append(is_subagent())
 
         class _R:
-            output = inspector_module.GoalInspectionOutput(complete=True, notes="ok")
+            output = inspector_module.BuildInspectionOutput(complete=True, notes="ok")
 
         return _R()
 
@@ -577,10 +577,10 @@ async def test_inspector_runs_inside_subagent_context(isolated_inspectors):
         mock_agent.run = fake_run
         mock_agent_cls.return_value = mock_agent
 
-        verdict = await inspector_module.inspect_goal(
+        verdict = await inspector_module.inspect_build(
             inspector_config=InspectorConfig(name="checker", model="fake-model"),
             implementor_agent=_fake_agent(),
-            goal="g",
+            build="g",
             response="r",
             error=None,
             history=[],
@@ -596,13 +596,13 @@ async def test_inspector_runs_inside_subagent_context(isolated_inspectors):
 
 @pytest.mark.asyncio
 async def test_abstaining_inspector_excluded_from_tally(isolated_inspectors):
-    """One abstaining + one PASS = goal complete (abstain excluded)."""
+    """One abstaining + one PASS = build complete (abstain excluded)."""
     inspector_config.add_inspector(InspectorConfig(name="passy", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="busted", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         if inspector_config.name == "busted":
-            return GoalInspection(
+            return BuildInspection(
                 inspector_name="busted",
                 complete=False,
                 notes="endpoint error (NotFoundError): 404 model_not_found",
@@ -612,12 +612,12 @@ async def test_abstaining_inspector_excluded_from_tally(isolated_inspectors):
         return _verdict("passy", complete=True, notes="all good")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, notes, _ = await goal_loop._run_goal_inspectors(
+        all_complete, notes, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -635,9 +635,9 @@ async def test_abstaining_inspector_with_failing_other_still_incomplete(
     inspector_config.add_inspector(InspectorConfig(name="busted", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="strict", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
         if inspector_config.name == "busted":
-            return GoalInspection(
+            return BuildInspection(
                 inspector_name="busted",
                 complete=False,
                 notes="endpoint error",
@@ -647,12 +647,12 @@ async def test_abstaining_inspector_with_failing_other_still_incomplete(
         return _verdict("strict", complete=False, notes="tests still failing")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector"),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector"),
     ):
-        all_complete, notes, _ = await goal_loop._run_goal_inspectors(
+        all_complete, notes, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -667,8 +667,8 @@ async def test_all_abstain_means_cannot_decide(isolated_inspectors):
     inspector_config.add_inspector(InspectorConfig(name="a", model="m"))
     inspector_config.add_inspector(InspectorConfig(name="b", model="m"))
 
-    async def fake_inspector_goal(*, inspector_config, **_kwargs):
-        return GoalInspection(
+    async def fake_inspector_build(*, inspector_config, **_kwargs):
+        return BuildInspection(
             inspector_name=inspector_config.name,
             complete=False,
             notes="endpoint error",
@@ -682,12 +682,12 @@ async def test_all_abstain_means_cannot_decide(isolated_inspectors):
         seen.append(msg)
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector", side_effect=capture),
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector", side_effect=capture),
     ):
-        all_complete, _, _ = await goal_loop._run_goal_inspectors(
+        all_complete, _, _ = await build_loop._run_build_inspectors(
             agent=_fake_agent(),
-            goal="g",
+            build="g",
             result=None,
             error=None,
         )
@@ -701,27 +701,27 @@ async def test_all_abstain_means_cannot_decide(isolated_inspectors):
 async def test_cancellation_during_gather_shows_banner_and_propagates(
     isolated_inspectors,
 ):
-    """Ctrl+C inside _run_goal_inspectors: show a visible banner, then re-raise.
+    """Ctrl+C inside _run_build_inspectors: show a visible banner, then re-raise.
 
-    Letting cancellation propagate out of _run_goal_inspectors is what stops the
-    goal loop cleanly — if we swallowed it and returned 'incomplete', the
+    Letting cancellation propagate out of _run_build_inspectors is what stops the
+    build loop cleanly — if we swallowed it and returned 'incomplete', the
     caller would just request another retry. The OUTER plugin boundary
     (_on_interactive_turn_end) catches it so the REPL stays alive.
     """
     inspector_config.add_inspector(InspectorConfig(name="slow", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         await asyncio.sleep(10)
         return _verdict("slow", complete=True, notes="")
 
     with (
-        patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-        patch.object(goal_loop, "display_inspector") as mock_display,
+        patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+        patch.object(build_loop, "display_inspector") as mock_display,
     ):
         task = asyncio.create_task(
-            goal_loop._run_goal_inspectors(
+            build_loop._run_build_inspectors(
                 agent=_fake_agent(),
-                goal="g",
+                build="g",
                 result=None,
                 error=None,
             )
@@ -737,26 +737,26 @@ async def test_cancellation_during_gather_shows_banner_and_propagates(
 
 
 @pytest.mark.asyncio
-async def test_turn_end_swallows_cancellation_and_stops_goal_mode(isolated_inspectors):
+async def test_turn_end_swallows_cancellation_and_stops_build_mode(isolated_inspectors):
     """Same regression at the higher level: _on_interactive_turn_end must
-    catch cancellation, stop goal mode, and return None (no continuation).
+    catch cancellation, stop build mode, and return None (no continuation).
     """
-    from code_puppy.plugins.bead_factory import loop_state as state
+    from code_puppy.plugins.bead_factory import build_state as state
 
     state.start("do a thing")
     inspector_config.add_inspector(InspectorConfig(name="slow", model="m"))
 
-    async def fake_inspector_goal(**_kwargs):
+    async def fake_inspector_build(**_kwargs):
         await asyncio.sleep(10)
         return _verdict("slow", complete=True, notes="")
 
     try:
         with (
-            patch.object(goal_loop, "inspect_goal", new=fake_inspector_goal),
-            patch.object(goal_loop, "display_inspector"),
+            patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+            patch.object(build_loop, "display_inspector"),
         ):
             task = asyncio.create_task(
-                goal_loop.on_interactive_turn_end(
+                build_loop.on_interactive_turn_end(
                     agent=_fake_agent(),
                     prompt="do a thing",
                     result=MagicMock(output="trying"),
@@ -774,5 +774,5 @@ async def test_turn_end_swallows_cancellation_and_stops_goal_mode(isolated_inspe
             state.stop()
 
     assert next_request is None
-    # Goal mode was stopped as a side-effect.
+    # Build mode was stopped as a side-effect.
     assert state.is_active() is False

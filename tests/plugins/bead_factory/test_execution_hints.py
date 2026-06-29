@@ -1,4 +1,4 @@
-"""Unit tests for FB-8: execution_* metadata hints shaping the /goal pass.
+"""Unit tests for FB-8: execution_* metadata hints shaping the build pass.
 
 Coverage-audit gap FB-8 (``bead_chain-9n3``, swarms#2): a bead's
 free-form ``metadata`` carries an *unenforced* execution vocabulary
@@ -6,7 +6,7 @@ free-form ``metadata`` carries an *unenforced* execution vocabulary
 ``execution_mode`` / ``execution_parallel_group``). bead-chain
 historically read none of it. :mod:`execution_hints` now maps the three
 serial-compatible keys onto code-puppy's reasoning-effort / model /
-agent knobs right before wiggum's ``/goal`` loop is armed.
+agent knobs right before the build loop is armed.
 
 These tests pin:
 
@@ -53,7 +53,7 @@ def test_extract_recognized_keys():
 def test_extract_drops_unknown_execution_keys():
     """execution_mode / execution_parallel_group have no serial mapping."""
     meta = {
-        "execution_mode": "wiggum",
+        "execution_mode": "build",
         "execution_parallel_group": "wave-1",
         "execution_effort": "low",
     }
@@ -163,7 +163,7 @@ def test_apply_ignores_unknown_keys(monkeypatch):
     bead = {
         "id": "x-2",
         "metadata": {
-            "execution_mode": "wiggum",
+            "execution_mode": "build",
             "execution_parallel_group": "wave-1",
             "team": "platform",
         },

@@ -1,7 +1,7 @@
-"""Bead → ``/goal`` prompt formatting.
+"""Bead → build-prompt formatting.
 
 Pure (or near-pure) helpers that turn a ``bd ready``-shaped bead dict
-into the prompt string we hand off to the ``/goal`` loop. Split
+into the prompt string we hand off to the build loop. Split
 out of the chain driver to keep that wiring module under the 600-line
 plugin cap; also gives the prompt-shape tests one obvious target.
 
@@ -27,12 +27,12 @@ from .prompt_blocks import (
 )
 
 __all__ = [
-    "format_bead_as_goal",
+    "format_bead_as_build",
     "is_triaged_bug",
     "TRIAGE_MARKER",
 ]
 
-# Preamble prepended to the goal prompt when bead-chain is resuming a
+# Preamble prepended to the build prompt when bead-chain is resuming a
 # bead that was left in_progress by a previous, errored or cancelled
 # run. The agent must assess current state BEFORE redoing any work —
 # the bead may already be satisfied, in which case it should report
@@ -63,7 +63,7 @@ _RECOVERY_PREAMBLE: str = (
 # files it mid-chain via the bug-discovery protocol (see
 # :data:`_BUG_DISCOVERY_PROTOCOL`). When a *future* /bead-chain iteration
 # claims that bug, :func:`is_triaged_bug` spots the marker and
-# :func:`format_bead_as_goal` swaps the standard goal prompt for the
+# :func:`format_bead_as_build` swaps the standard build prompt for the
 # triage-verification preamble (:data:`_TRIAGE_VERIFY_PREAMBLE`).
 #
 # Why a description sentinel instead of a bd label/tag:
@@ -99,7 +99,7 @@ TRIAGE_MARKER: str = "[bead-chain:triaged]"
 #
 # Precedence note: if the bug also got stranded in_progress (verifying
 # agent crashed), the recovery preamble (:data:`_RECOVERY_PREAMBLE`)
-# wins via the ordering in :func:`format_bead_as_goal` — "assess current
+# wins via the ordering in :func:`format_bead_as_build` — "assess current
 # state" subsumes "verify a prior fix" cleanly.
 _TRIAGE_VERIFY_PREAMBLE: str = (
     "🔍 TRIAGE VERIFICATION: this bug was discovered and inline-fixed by\n"
@@ -124,7 +124,7 @@ _TRIAGE_VERIFY_PREAMBLE: str = (
     "\n"
 )
 
-# Bug-discovery protocol appended to every goal prompt. Short rubric
+# Bug-discovery protocol appended to every build prompt. Short rubric
 # format so agents can scan it without burning attention budget.
 #
 # Design decisions baked in (per design discussion):
@@ -198,7 +198,7 @@ _BUG_DISCOVERY_PROTOCOL: str = (
 def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
     """True if ``bead``'s description carries the :data:`TRIAGE_MARKER`.
 
-    Used by :func:`format_bead_as_goal` to switch a bug bead claimed by
+    Used by :func:`format_bead_as_build` to switch a bug bead claimed by
     a future /bead-chain iteration from the normal-work prompt to the
     triage-verification preamble (:data:`_TRIAGE_VERIFY_PREAMBLE`).
 
@@ -223,8 +223,8 @@ def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
     return TRIAGE_MARKER in description
 
 
-def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
-    """Turn a bd-ready JSON record into a goal prompt for /goal.
+def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str:
+    """Turn a bd-ready JSON record into a build prompt for the build loop.
 
     When the bead has a parent epic (canonical ``parent`` field on bd's
     output, plus legacy ``parent_id`` / ``epic_id`` fallbacks), the
@@ -318,7 +318,7 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     acceptance_block = _format_acceptance_criteria_block(bead)
 
     # FB-5 (bead_chain-vmo): run `bd lint <id>` on the claim path and fold
-    # any missing-template-section warnings into the goal prompt. Building
+    # any missing-template-section warnings into the build prompt. Building
     # the prompt happens immediately after `bd update --claim`, so the
     # lint is the claim path. Where the acceptance block above renders
     # what's *present*, this renders what the template contract says is

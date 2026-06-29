@@ -15,7 +15,7 @@ from code_puppy.messaging import emit_warning
 
 
 def handle_inspectors_command(command: str) -> bool:
-    """Open the goal-inspectors TUI."""
+    """Open the build-inspectors TUI."""
     del command
     import concurrent.futures
 

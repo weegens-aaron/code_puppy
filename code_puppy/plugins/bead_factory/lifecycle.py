@@ -1,7 +1,7 @@
 """Bead lifecycle helpers — the state-transition brain of bead-chain.
 
 This module owns the *state transitions*: how to close, revert, enforce
-the single-in_progress invariant, pick the next bead, and arm the goal
+the single-in_progress invariant, pick the next bead, and arm the build
 loop for the next iteration. The companion :mod:`chain_driver` module
 owns the *wiring*: slash-command registration, hook registration,
 the hook handlers themselves, CLI flag parsing.
@@ -31,16 +31,16 @@ from . import state
 
 try:
     # bead-chain is a queue driver that delegates the LLM-judged completion
-    # loop to the goal/wiggum loop. Post-merge that loop lives IN THIS
-    # package — its state is the in-package :mod:`loop_state` module (no more
+    # loop to the build loop. Post-merge that loop lives IN THIS
+    # package — its state is the in-package :mod:`build_state` module (no more
     # cross-import of ``code_puppy.plugins.wiggum``). We keep the defensive
-    # import so this module still imports cleanly if loop_state is somehow
+    # import so this module still imports cleanly if build_state is somehow
     # broken: chain_driver gates every code path that would actually call
-    # wiggum_state behind an availability check, so a None here is never
+    # build_state behind an availability check, so a None here is never
     # dereferenced. (bead_chain-c87)
-    from . import loop_state as wiggum_state
+    from . import build_state
 except ImportError:  # pragma: no cover - exercised via chain_driver
-    wiggum_state = None  # type: ignore[assignment]
+    build_state = None  # type: ignore[assignment]
 from .beads import BeadsError, RECOVERABLE_STATUSES, is_excluded_type
 from .beads_reads import (
     extract_parent_epic_id,
@@ -63,7 +63,7 @@ from .lifecycle_close import (
     probe_resolved_gates,
     rollup_completed_epics,
 )
-from .prompt import format_bead_as_goal
+from .prompt import format_bead_as_build
 
 
 __all__ = [
@@ -319,7 +319,7 @@ def _reject_if_blocked(bead: dict[str, Any] | None, tier: str) -> bool:
 def activate_next_bead(
     just_closed: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Pick the next ready bead, claim it, arm the goal loop.
+    """Pick the next ready bead, claim it, arm the build loop.
 
     If ``just_closed`` is provided and had a parent epic, we prefer the
     next ready bead under that same epic before falling back to the
@@ -401,7 +401,7 @@ def activate_next_bead(
     # return a container bead (epic). All four tiers filter epics out
     # both server-side (``--exclude-type=epic``) and client-side via
     # :func:`is_excluded_type`. If one slipped through anyway, refuse
-    # to arm wiggum with it — driving wiggum at an epic causes the
+    # to arm the build loop with it — driving the build loop at an epic causes the
     # 'cannot close epic: N open child issue(s)' failure we hit in
     # prod, and halts the chain after wasted token spend.
     if is_excluded_type(bead):
@@ -542,20 +542,20 @@ def activate_next_bead(
 
     # FB-8 (bead_chain-9n3): apply the bead's recognized execution_*
     # metadata hints (effort/model/agent_type) to the serial drive before
-    # arming wiggum. Soft-fails per hint; no-op when none are present.
+    # arming the build loop. Soft-fails per hint; no-op when none are present.
     applied_hints = apply_execution_hints(bead)
     if applied_hints:
         emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
-    goal_prompt = format_bead_as_goal(bead, recovery=recovery)
+    build_prompt = format_bead_as_build(bead, recovery=recovery)
 
-    # Hand the wheel to wiggum's /goal loop for the next N turns.
-    wiggum_state.start(goal_prompt)
+    # Hand the wheel to the build loop for the next N turns.
+    build_state.start(build_prompt)
 
     action = "recovered" if recovery else "claimed"
     emit_info(f"🔗 bead-chain {action} {bead_id} — {bead.get('title', '')}")
     return {
-        "prompt": goal_prompt,
+        "prompt": build_prompt,
         "clear_context": True,
         "delay": 0.5,
         "reason": "bead_chain",

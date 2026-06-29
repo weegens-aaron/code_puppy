@@ -1,6 +1,6 @@
-"""Persisted configuration for goal-mode LLM inspectors.
+"""Persisted configuration for build-mode LLM inspectors.
 
-Relocated from the former ``wiggum`` plugin's goal-completion verifier config
+Relocated from the former ``wiggum`` plugin's build-completion verifier config
 module and renamed to the "inspectors" vocabulary (pure rename, zero behavior
 change). Imports are rewired to the ``code_puppy.plugins.bead_factory``
 namespace.
@@ -8,7 +8,7 @@ namespace.
 Each inspector is a (name, model, prompt, enabled) tuple. Inspectors live in a
 JSON file at ``$XDG_DATA_HOME/code_puppy/inspectors.json`` so users can
 configure multiple verifiers -- for example, one inspector that checks tests
-pass, another that checks docs are updated, etc. The goal loop fans these out
+pass, another that checks docs are updated, etc. The build loop fans these out
 in parallel and only declares success when *every* enabled inspector reports no
 remediation notes.
 """
@@ -31,9 +31,9 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 
 DEFAULT_INSPECTOR_PROMPT = """\
-You are Code Puppy's goal-completion inspector.
+You are Code Puppy's build-completion inspector.
 
-Decide whether the user's goal is verifiably complete based on the
+Decide whether the user's build is verifiably complete based on the
 implementor's latest response and (optionally) its message history.
 
 Rules:
@@ -43,9 +43,9 @@ Rules:
 - Return the structured output exactly as requested by the runtime.
 - Be strict. If completion is uncertain, mark incomplete and provide
   concrete remediation notes the implementor can act on next turn.
-- For trivial conversational goals, decide based on whether the latest
+- For trivial conversational builds, decide based on whether the latest
   response satisfies the request.
-- For coding goals, prefer concrete verification: passing tests,
+- For coding builds, prefer concrete verification: passing tests,
   successful commands, file inspection.
 """
 
@@ -238,7 +238,7 @@ def get_enabled_inspectors_or_default(fallback_model: str) -> list[InspectorConf
 
     If the user has configured inspectors via /inspectors, those are used.
     Otherwise we synthesize a single default inspector using ``fallback_model``
-    and the standard goal-inspector prompt so the goal loop works
+    and the standard build-inspector prompt so the build loop works
     out-of-the-box.
     """
     registry = load_inspectors()

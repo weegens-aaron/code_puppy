@@ -3,7 +3,7 @@
 Coverage-audit gap FB-11 (``bead_chain-n57``, dependency#2): the six
 context-bearing edges (``related``, ``relates-to``, ``tracks``,
 ``discovered-from``, ``caused-by``, ``validates``) are never surfaced in
-the goal prompt, so the working agent (and the LLM judges) are blind to
+the build prompt, so the working agent (and the LLM judges) are blind to
 the bead's provenance, causal bug link, validating test and related
 work. These tests pin the present/absent rendering of
 :func:`prompt._format_related_context_block` and verify that **gating
@@ -58,7 +58,7 @@ def _show_edge(target: str, edge_type: str, **extra) -> dict:
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: present cases
+# format_bead_as_build: present cases
 # --------------------------------------------------------------------------
 
 
@@ -71,7 +71,7 @@ def test_present_context_edges_render_block():
             _ready_edge("demo-6", "related"),
         ]
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert _HEADING in out
     assert "- Discovered while working on demo-9" in out
     assert "- Caused by demo-8" in out
@@ -84,14 +84,14 @@ def test_block_appears_after_acceptance_before_checklist():
         acceptance_criteria="- it works",
         dependencies=[_ready_edge("demo-2", "related")],
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert out.index("## Acceptance Criteria") < out.index(_HEADING)
     assert out.index(_HEADING) < out.index("When you believe this is done:")
 
 
 def test_block_caveat_states_non_gating():
     bead = _base_bead(dependencies=[_ready_edge("demo-2", "caused-by")])
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert "do NOT block this" in out.lower() or "do not block this" in out.lower()
 
 
@@ -99,12 +99,12 @@ def test_show_shape_edges_render_with_title():
     bead = _base_bead(
         dependencies=[_show_edge("demo-5", "validates", title="The test bead")]
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert "- Validates demo-5: The test bead" in out
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: gating / structural edges are NOT surfaced
+# format_bead_as_build: gating / structural edges are NOT surfaced
 # --------------------------------------------------------------------------
 
 
@@ -116,7 +116,7 @@ def test_blocking_edges_not_in_block():
             _ready_edge("demo-p", "parent-child"),
         ]
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     # None of these are context edges -> no block at all.
     assert _HEADING not in out
     assert "demo-b" not in out
@@ -131,7 +131,7 @@ def test_mixed_edges_only_context_surfaced():
             _ready_edge("demo-p", "parent-child"),
         ]
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert "- Related to demo-r" in out
     assert "demo-b" not in out
     assert "demo-p" not in out
@@ -145,27 +145,27 @@ def test_until_and_supersedes_not_surfaced():
             _ready_edge("demo-s", "supersedes"),
         ]
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert _HEADING not in out
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: absent / malformed -> prompt unchanged
+# format_bead_as_build: absent / malformed -> prompt unchanged
 # --------------------------------------------------------------------------
 
 
 def test_absent_dependencies_no_block():
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _HEADING not in out
 
 
 def test_empty_dependencies_no_block():
-    out = prompt.format_bead_as_goal(_base_bead(dependencies=[]))
+    out = prompt.format_bead_as_build(_base_bead(dependencies=[]))
     assert _HEADING not in out
 
 
 def test_non_list_dependencies_no_block():
-    out = prompt.format_bead_as_goal(_base_bead(dependencies="related"))
+    out = prompt.format_bead_as_build(_base_bead(dependencies="related"))
     assert _HEADING not in out
 
 
@@ -178,7 +178,7 @@ def test_malformed_edge_entries_skipped():
             _ready_edge("demo-ok", "related"),
         ]
     )
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert "- Related to demo-ok" in out
     assert out.count("\n- ") >= 1
 
@@ -269,8 +269,8 @@ def test_helper_block_ends_with_blank_line():
 
 
 def test_no_context_edges_prompt_byte_for_byte_unchanged():
-    plain = prompt.format_bead_as_goal(_base_bead())
-    with_gating = prompt.format_bead_as_goal(
+    plain = prompt.format_bead_as_build(_base_bead())
+    with_gating = prompt.format_bead_as_build(
         _base_bead(dependencies=[_ready_edge("demo-b", "blocks")])
     )
     assert plain == with_gating
@@ -278,7 +278,7 @@ def test_no_context_edges_prompt_byte_for_byte_unchanged():
 
 def test_recovery_prompt_still_renders_related_context():
     bead = _base_bead(dependencies=[_ready_edge("demo-9", "discovered-from")])
-    out = prompt.format_bead_as_goal(bead, recovery=True)
+    out = prompt.format_bead_as_build(bead, recovery=True)
     assert "RECOVERY MODE" in out
     assert "- Discovered while working on demo-9" in out
 

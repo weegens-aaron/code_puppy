@@ -1,7 +1,7 @@
-"""Bead -> goal-prompt block builders.
+"""Bead -> build-prompt block builders.
 
 The pure (or soft-failing) helpers that turn a ``bd ready``-shaped bead dict
-into the individual prompt *sections* :func:`prompt.format_bead_as_goal`
+into the individual prompt *sections* :func:`prompt.format_bead_as_build`
 assembles. Split out of :mod:`prompt` during the bead_factory migration to
 keep both files under the 600-line plugin cap and to give the prompt-shape
 tests one obvious target. Behavior is unchanged.
@@ -20,7 +20,7 @@ from .beads_reads import extract_parent_epic_id, memories, show
 from .beads_writes import lint_warnings
 
 
-# Char cap for the epic-description excerpt injected into the goal prompt.
+# Char cap for the epic-description excerpt injected into the build prompt.
 # Big enough to convey purpose, small enough that ten chained beads under
 # the same epic don't blow the LLM's context budget on duplicate prose.
 _EPIC_EXCERPT_LIMIT: int = 280
@@ -29,13 +29,13 @@ _EPIC_EXCERPT_LIMIT: int = 280
 #
 # POLICY (one line): bead-chain surfaces *bd's* project-scoped memory
 # layer (``bd remember``/``bd memories``, which travels with the Dolt DB)
-# into the goal prompt and nudges agents to write back to it; it does NOT
+# into the build prompt and nudges agents to write back to it; it does NOT
 # bridge to the host runtime's Kennel — the two are deliberately separate
 # (bd memories = this project's shared facts; Kennel = the host agent's
 # cross-repo diary), and coupling them would tie bead-chain to a
 # host-specific backend. We document the split rather than bridge it.
 #
-# Caps for the persistent-memory digest injected into the goal prompt.
+# Caps for the persistent-memory digest injected into the build prompt.
 # Memories are high-signal but unbounded over a project's life; we cap
 # both the count and per-entry length so a long-lived bd DB can't blow
 # the LLM context budget. Newest-by-bd-order entries win the slots.
@@ -65,7 +65,7 @@ def _fetch_epic_context(epic_id: str) -> tuple[str, str] | None:
     Soft-fails by design: any :class:`BeadsError` (bd missing, timeout,
     bead not found, garbage JSON) yields ``None`` and lets the caller
     fall back to a minimal "Parent epic: <id>" line. Epic context is a
-    nice-to-have for the LLM — we never want it to crash the goal
+    nice-to-have for the LLM — we never want it to crash the build
     prompt or stall the chain.
     """
     try:
@@ -84,7 +84,7 @@ def _fetch_memory_digest() -> dict[str, str]:
 
     Soft-fails by design (same rationale as :func:`_fetch_epic_context`):
     any :class:`BeadsError` — bd missing, timeout, this bd build lacking
-    a ``memories`` subcommand, garbage JSON — yields ``{}`` so the goal
+    a ``memories`` subcommand, garbage JSON — yields ``{}`` so the build
     prompt renders without a memory block rather than crashing the
     chain. The memory digest is a warm-start nicety, never a hard
     dependency.
@@ -100,10 +100,10 @@ def _fetch_lint_warnings(bead_id: str) -> list[str]:
 
     Soft-fails by design (same rationale as :func:`_fetch_memory_digest`):
     any :class:`BeadsError` — bd missing, timeout, this bd build lacking a
-    ``lint`` subcommand, garbage JSON — yields ``[]`` so the goal prompt
+    ``lint`` subcommand, garbage JSON — yields ``[]`` so the build prompt
     renders without a lint block rather than crashing the chain. Running
     the lint at prompt-build time means the *claim path* (which builds the
-    goal prompt immediately after ``bd update --claim``) always consults
+    build prompt immediately after ``bd update --claim``) always consults
     the template contract — coverage-audit gap FB-5, ``bead_chain-vmo``.
     """
     try:
@@ -115,7 +115,7 @@ def _fetch_lint_warnings(bead_id: str) -> list[str]:
 def _format_memory_digest_block(mems: dict[str, str]) -> str:
     """Render a ``## Persistent Memories`` prompt section, or ``""``.
 
-    Bridges bd's memory layer into the goal prompt so a freshly-spawned
+    Bridges bd's memory layer into the build prompt so a freshly-spawned
     working agent starts warm — it sees the project's durable insights
     (architecture decisions, gotchas, prior-bead learnings) the same way
     a human running ``bd prime`` would (coverage-audit gap FB-6,
@@ -152,7 +152,7 @@ def _format_memory_digest_block(mems: dict[str, str]) -> str:
 
 
 def _format_epic_metadata_lines(bead: dict[str, Any]) -> list[str]:
-    """Build the ``Parent epic: ...`` metadata lines for the goal prompt.
+    """Build the ``Parent epic: ...`` metadata lines for the build prompt.
 
     Returns ``[]`` when the bead has no parent epic, so the caller can
     blindly ``extend()`` without conditionals.
@@ -185,7 +185,7 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
     """Return a ``- Labels: a, b, c`` metadata line, or ``[]`` when absent.
 
     ``labels`` is a list of strings on the ``bd ready --json`` record
-    bead-chain already hands to :func:`format_bead_as_goal` (verified
+    bead-chain already hands to :func:`format_bead_as_build` (verified
     present on this bd build — coverage-audit gap FB-7, anatomy #3), but
     the formatter historically never read it. Labels are the bead's
     cross-cutting tags (e.g. ``bead-chain``, ``prompt``, ``security``) —
@@ -211,7 +211,7 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
     return [f"- Labels: {', '.join(labels)}"]
 
 
-# Non-gating, context-bearing edge types bead-chain surfaces in the goal
+# Non-gating, context-bearing edge types bead-chain surfaces in the build
 # prompt (coverage-audit gap FB-11, ``bead_chain-n57``; dependency#2).
 #
 # These six edges carry *context* the working agent (and the LLM judges)
@@ -274,7 +274,7 @@ def _format_related_context_block(bead: dict[str, Any]) -> str:
     not blockers.
 
     Reads the ``dependencies`` array that ``bd ready --json`` already
-    hands :func:`format_bead_as_goal`. Each edge is rendered
+    hands :func:`format_bead_as_build`. Each edge is rendered
     ``- <gloss> <target-id>`` (with ``: <title>`` appended when the edge
     record carries one, as ``bd show`` records do). Entries are emitted
     grouped by :data:`_CONTEXT_EDGE_GLOSSES` insertion order, then in the
@@ -372,7 +372,7 @@ def _format_acceptance_criteria_block(bead: dict[str, Any]) -> str:
     """Return a ``## Acceptance Criteria`` prompt section, or ``""`` if absent.
 
     ``acceptance_criteria`` is already a key on the ``bd ready --json``
-    record bead-chain hands to :func:`format_bead_as_goal`, but the
+    record bead-chain hands to :func:`format_bead_as_build`, but the
     formatter historically never read it — so the LLM judges verified
     completion against a contract the prompt never showed the agent
     (coverage-audit gap FB-2, ``bead_chain-2zx``).

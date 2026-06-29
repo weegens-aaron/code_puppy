@@ -1,6 +1,6 @@
 """State for the bead-chain plugin.
 
-Mirrors wiggum's tiny-singleton pattern. Behavior lives in
+Mirrors a tiny-singleton pattern. Behavior lives in
 ``chain_driver.py`` and ``lifecycle.py`` — this module is a dumb data box.
 
 Thread-safety (known limitation)

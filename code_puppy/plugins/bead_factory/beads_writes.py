@@ -336,7 +336,7 @@ def lint_warnings(bead_id: str) -> list[str]:
     contract, so a bead that lost its ``## Acceptance Criteria`` to a
     ``--graph`` import would be graded by the LLM judges against a
     section the agent was never shown was missing. Surfacing the lint
-    output into the goal prompt closes that blind spot (pairs with FB-2,
+    output into the build prompt closes that blind spot (pairs with FB-2,
     which renders the criteria that *are* present).
 
     The ``--status all`` flag is belt-and-suspenders: a claimed bead is

@@ -7,12 +7,12 @@ small, *unenforced* execution vocabulary in each bead's free-form
 ``execution_mode`` (set via ``bd update --set-metadata k=v``). bd does
 **not** special-case them; they are a shared contract between bead
 authors and orchestrators. bead-chain historically read **none** of
-them, so an author could not shape even the single ``/goal`` pass the
+them, so an author could not shape even the single build pass the
 chain runs per bead.
 
 This module closes the *serial-compatible* slice of that gap. It maps
 the three keys that have a sensible one-worker meaning onto code-puppy's
-own knobs, right before the ``/goal`` loop is armed:
+own knobs, right before the build loop is armed:
 
     execution_effort     → reasoning budget   (config.set_openai_reasoning_effort)
     execution_model      → model select       (config.set_model_name)
@@ -21,7 +21,7 @@ own knobs, right before the ``/goal`` loop is armed:
 ``execution_parallel_group`` and ``execution_mode`` are deliberately
 **not** acted on: bead-chain is a one-bead-at-a-time serial driver
 (single-in_progress invariant), so parallel grouping is meaningless and
-the run mode is always ``goal``. They — and any other key — fall through
+the run mode is always ``build``. They — and any other key — fall through
 the "unknown keys ignored" path.
 
 Design notes
@@ -162,12 +162,12 @@ def _resolve_metadata(bead: dict[str, Any]) -> Any:
 
 
 def apply_execution_hints(bead: dict[str, Any] | None) -> list[str]:
-    """Apply a bead's recognized ``execution_*`` hints to the /goal drive.
+    """Apply a bead's recognized ``execution_*`` hints to the build drive.
 
     Reads ``execution_effort`` / ``execution_model`` / ``execution_agent_type``
     from the bead's free-form ``metadata`` and maps each onto code-puppy's
     serial knobs (reasoning effort / model select / agent select) so they
-    shape the single ``/goal`` pass bead-chain runs for this bead.
+    shape the single build pass bead-chain runs for this bead.
 
     Returns a list of human-readable ``"label → value"`` strings naming
     what was applied (for the caller to log); ``[]`` means nothing
@@ -175,7 +175,7 @@ def apply_execution_hints(bead: dict[str, Any] | None) -> list[str]:
 
     Contract (matches the FB-8 acceptance criteria):
 
-    * Recognized, non-empty keys influence the next ``/goal`` invocation.
+    * Recognized, non-empty keys influence the next build invocation.
     * Unknown keys are ignored; absent / garbage metadata → no change
       (``[]``).
     * Soft-fails *per hint*: a setter that rejects a value (e.g. an

@@ -1,16 +1,15 @@
-"""Goal/loop orchestration for the bead_factory plugin.
+"""Build-loop orchestration for the bead_factory plugin.
 
 Relocated from the former ``wiggum`` plugin's ``register_callbacks.py``. This
 module holds the *importable logic* only -- the iteration-cap reader, the
 parallel inspector orchestration, the remediation-note formatting, and the
-turn-end/turn-cancel drivers that power the goal and loop modes. It does NOT
-register any slash commands or callbacks; wiring is the entry-point module's
-job.
+turn-end/turn-cancel drivers that power the build loop. It does NOT register
+any slash commands or callbacks; wiring is the entry-point module's job.
 
 Renames applied (pure rename, zero behavior change):
   * the verifier vocabulary becomes "inspectors"
-    (``_run_goal_inspectors``, ``_run_single_inspector``, etc.)
-  * the iteration-cap config key becomes ``bf_goal_max_iterations``
+    (``_run_build_inspectors``, ``_run_single_inspector``, etc.)
+  * the iteration-cap config key becomes ``bf_build_max_iterations``
     (read via ``get_value``)
   * the banner key/label become ``bf_inspector`` / ``INSPECTOR``
     (see ``banner.py``)
@@ -26,30 +25,30 @@ from code_puppy.messaging import (
     emit_warning,
 )
 
-from . import loop_state as state
+from . import build_state as state
 from .banner import display_inspector
-from .inspector import GoalInspection, inspect_goal
+from .inspector import BuildInspection, inspect_build
 from .inspector_config import (
     InspectorConfig,
     get_enabled_inspectors_or_default,
 )
 
-# Default cap on goal-mode iterations. Override per-user with:
-#   /set bf_goal_max_iterations=<int>
-# Clamped to [1, 1000] in get_goal_max_iterations to avoid pathological values.
-GOAL_MAX_ITERATIONS_DEFAULT = 10
-GOAL_MAX_ITERATIONS_FLOOR = 1
-GOAL_MAX_ITERATIONS_CEILING = 1000
+# Default cap on build-loop iterations. Override per-user with:
+#   /set bf_build_max_iterations=<int>
+# Clamped to [1, 1000] in get_build_max_iterations to avoid pathological values.
+BUILD_MAX_ITERATIONS_DEFAULT = 10
+BUILD_MAX_ITERATIONS_FLOOR = 1
+BUILD_MAX_ITERATIONS_CEILING = 1000
 
 
-def get_goal_max_iterations() -> int:
-    """Read the configured goal iteration cap, with sane fallbacks."""
-    val = get_value("bf_goal_max_iterations")
+def get_build_max_iterations() -> int:
+    """Read the configured build iteration cap, with sane fallbacks."""
+    val = get_value("bf_build_max_iterations")
     try:
-        n = int(val) if val else GOAL_MAX_ITERATIONS_DEFAULT
+        n = int(val) if val else BUILD_MAX_ITERATIONS_DEFAULT
     except (ValueError, TypeError):
-        n = GOAL_MAX_ITERATIONS_DEFAULT
-    return max(GOAL_MAX_ITERATIONS_FLOOR, min(n, GOAL_MAX_ITERATIONS_CEILING))
+        n = BUILD_MAX_ITERATIONS_DEFAULT
+    return max(BUILD_MAX_ITERATIONS_FLOOR, min(n, BUILD_MAX_ITERATIONS_CEILING))
 
 
 # ---------------------------------------------------------------------------
@@ -62,11 +61,11 @@ def _response_text(result: Any) -> str | None:
 
 
 def _resolve_inspectors(implementor_agent: Any) -> list[InspectorConfig]:
-    """Pick the inspector set for this goal iteration.
+    """Pick the inspector set for this build iteration.
 
     If the user has configured inspectors via ``/inspectors`` we use those.
     Otherwise we fall back to a single ``default`` inspector that uses the
-    implementor agent's model and the standard goal-inspector prompt.
+    implementor agent's model and the standard build-inspector prompt.
     """
     fallback_model = getattr(
         implementor_agent.get_pydantic_agent().model
@@ -86,7 +85,7 @@ def _resolve_inspectors(implementor_agent: Any) -> list[InspectorConfig]:
     return get_enabled_inspectors_or_default(str(fallback_model))
 
 
-def _format_remediation_block(verdicts: list[GoalInspection]) -> str:
+def _format_remediation_block(verdicts: list[BuildInspection]) -> str:
     """Build the remediation-notes string that feeds the next iteration."""
     lines: list[str] = []
     for v in verdicts:
@@ -111,23 +110,23 @@ async def _run_single_inspector(
     inspector_config: InspectorConfig,
     *,
     implementor_agent: Any,
-    goal: str,
+    build: str,
     response: str | None,
     error: BaseException | None,
     history: list[Any],
-) -> GoalInspection:
+) -> BuildInspection:
     """Run a single inspector. No I/O -- callers handle display before/after.
 
-    We intentionally do NOT print here: ``_run_goal_inspectors`` runs many of
+    We intentionally do NOT print here: ``_run_build_inspectors`` runs many of
     these in parallel via ``asyncio.gather``, and concurrent calls into the
     rich Console (which does \\r line-clearing tricks) interleave and
     overwrite each other. Display is serialized at the orchestrator level.
     """
     try:
-        return await inspect_goal(
+        return await inspect_build(
             inspector_config=inspector_config,
             implementor_agent=implementor_agent,
-            goal=goal,
+            build=build,
             response=response,
             error=error,
             history=history,
@@ -135,14 +134,14 @@ async def _run_single_inspector(
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as exc:
-        # inspect_goal() already catches model exceptions and returns an
+        # inspect_build() already catches model exceptions and returns an
         # abstain-verdict. Anything that escapes here is an unexpected bug
         # in OUR plumbing -- still abstain so one bad inspector can't block
-        # the goal loop.
+        # the build loop.
         from code_puppy.error_logging import log_error
 
-        log_error(exc, context=f"Goal inspector failed ({inspector_config.name})")
-        return GoalInspection(
+        log_error(exc, context=f"Build inspector failed ({inspector_config.name})")
+        return BuildInspection(
             inspector_name=inspector_config.name,
             complete=False,
             notes=f"inspector crashed: {type(exc).__name__}: {exc}",
@@ -156,13 +155,13 @@ def _inspector_roster_line(inspectors: list[InspectorConfig]) -> str:
     return ", ".join(f"{i.name} ({i.model})" for i in inspectors)
 
 
-async def _run_goal_inspectors(
+async def _run_build_inspectors(
     *,
     agent: Any,
-    goal: str,
+    build: str,
     result: Any,
     error: BaseException | None,
-) -> tuple[bool, str, list[GoalInspection]]:
+) -> tuple[bool, str, list[BuildInspection]]:
     """Run every enabled inspector in parallel.
 
     Returns ``(all_complete, formatted_notes, verdicts)``.
@@ -183,7 +182,7 @@ async def _run_goal_inspectors(
     if len(inspectors) == 1:
         display_inspector(
             f"Asking inspector {_inspector_roster_line(inspectors)} "
-            "if the goal is complete..."
+            "if the build is complete..."
         )
     else:
         display_inspector(
@@ -192,12 +191,12 @@ async def _run_goal_inspectors(
         )
 
     try:
-        verdicts: list[GoalInspection] = await asyncio.gather(
+        verdicts: list[BuildInspection] = await asyncio.gather(
             *(
                 _run_single_inspector(
                     inspector,
                     implementor_agent=agent,
-                    goal=goal,
+                    build=build,
                     response=response_text,
                     error=error,
                     history=history,
@@ -209,10 +208,10 @@ async def _run_goal_inspectors(
         # Display the banner so the user sees WHY the panel bailed, then
         # re-raise. The caller (on_interactive_turn_end) catches at the
         # plugin boundary so the REPL stays alive. Letting cancellation
-        # propagate here is what stops the goal loop cleanly -- if we
+        # propagate here is what stops the build loop cleanly -- if we
         # returned a sentinel tuple instead, the caller would treat it as
-        # "goal incomplete" and request another retry.
-        display_inspector("⛔ Inspectors cancelled (Ctrl+C). Stopping goal loop.")
+        # "build incomplete" and request another retry.
+        display_inspector("⛔ Inspectors cancelled (Ctrl+C). Stopping build loop.")
         raise
 
     # Now serialize the per-inspector verdicts so all banners actually show up.
@@ -226,7 +225,7 @@ async def _run_goal_inspectors(
 
     # Abstaining inspectors (endpoint errors, misconfigured models, etc.) are
     # excluded from the tally -- they don't get a vote because they couldn't
-    # actually render one. The goal completes when every NON-abstaining
+    # actually render one. The build completes when every NON-abstaining
     # inspector says PASS. If every inspector abstained, we can't decide --
     # treat that as incomplete with a clear warning.
     voting = [v for v in verdicts if not v.abstained]
@@ -244,7 +243,7 @@ async def _run_goal_inspectors(
 
 
 # ---------------------------------------------------------------------------
-# Turn-end / turn-cancel drivers (power the goal and loop modes)
+# Turn-end / turn-cancel drivers (power the build loop)
 # ---------------------------------------------------------------------------
 
 
@@ -256,40 +255,40 @@ async def on_interactive_turn_end(
     success: bool = True,
     error: BaseException | None = None,
 ) -> dict[str, Any] | None:
-    """Ask the CLI to continue while the goal loop is active."""
+    """Ask the CLI to continue while the build loop is active."""
     del prompt, success
-    goal_prompt = state.get_prompt()
-    if not goal_prompt:
+    build_prompt = state.get_prompt()
+    if not build_prompt:
         state.stop()
         return None
 
     loop_num = state.increment()
     try:
-        complete, notes, _verdicts = await _run_goal_inspectors(
+        complete, notes, _verdicts = await _run_build_inspectors(
             agent=agent,
-            goal=goal_prompt,
+            build=build_prompt,
             result=result,
             error=error,
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
-        # Belt-and-suspenders: _run_goal_inspectors already swallows these
+        # Belt-and-suspenders: _run_build_inspectors already swallows these
         # but we never want a stray Ctrl+C to escape the plugin and
         # take down the whole REPL.
-        display_inspector("Goal loop cancelled (Ctrl+C).")
+        display_inspector("Build loop cancelled (Ctrl+C).")
         state.stop()
         return None
     if complete:
-        # Per-inspector verdicts were already shown by _run_goal_inspectors
+        # Per-inspector verdicts were already shown by _run_build_inspectors
         # -- no need to re-dump the notes block here.
-        display_inspector("GOAL COMPLETE!", final=True)
+        display_inspector("BUILD COMPLETE!", final=True)
         state.stop()
         return None
 
-    max_iters = get_goal_max_iterations()
+    max_iters = get_build_max_iterations()
     if loop_num >= max_iters:
         display_inspector(
-            f"GOAL STOPPED — Hit max iterations ({max_iters}). "
-            f"Raise the cap with /set bf_goal_max_iterations=<int>.",
+            f"BUILD STOPPED — Hit max iterations ({max_iters}). "
+            f"Raise the cap with /set bf_build_max_iterations=<int>.",
             final=True,
         )
         state.stop()
@@ -297,14 +296,14 @@ async def on_interactive_turn_end(
 
     state.get_state().remediation_notes = notes
     display_inspector(
-        f"GOAL INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
+        f"BUILD INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
         final=True,
     )
     return {
-        "prompt": f"{goal_prompt}\n\nInspector remediation notes:\n{notes}",
+        "prompt": f"{build_prompt}\n\nInspector remediation notes:\n{notes}",
         "clear_context": True,
         "delay": 0.5,
-        "reason": "goal",
+        "reason": "build",
     }
 
 
@@ -312,4 +311,4 @@ def on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> Non
     del prompt
     if state.is_active():
         state.stop()
-        emit_warning(f"Goal loop stopped due to {reason}")
+        emit_warning(f"Build loop stopped due to {reason}")

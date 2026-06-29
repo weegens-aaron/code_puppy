@@ -1,8 +1,8 @@
-"""Unit tests for acceptance_criteria rendering in the goal prompt.
+"""Unit tests for acceptance_criteria rendering in the build prompt.
 
 Coverage-audit gap FB-2 (``bead_chain-2zx``): ``acceptance_criteria`` is
 already a key on the ``bd ready --json`` dict, but
-:func:`prompt.format_bead_as_goal` historically never read it, so the LLM
+:func:`prompt.format_bead_as_build` historically never read it, so the LLM
 judges graded completion against a contract the prompt never showed the
 agent. These tests pin the present / absent behaviour and the
 ``_format_acceptance_criteria_block`` helper.
@@ -37,13 +37,13 @@ def _base_bead(**extra) -> dict:
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: present case
+# format_bead_as_build: present case
 # --------------------------------------------------------------------------
 
 
 def test_present_acceptance_criteria_is_rendered_under_heading():
     bead = _base_bead(acceptance_criteria="- foo works\n- bar is tested")
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert _HEADING in out
     assert "- foo works" in out
     assert "- bar is tested" in out
@@ -51,46 +51,46 @@ def test_present_acceptance_criteria_is_rendered_under_heading():
 
 def test_acceptance_criteria_appears_before_done_checklist():
     bead = _base_bead(acceptance_criteria="- must pass")
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert out.index(_HEADING) < out.index("When you believe this is done:")
 
 
 def test_acceptance_criteria_after_metadata():
     bead = _base_bead(acceptance_criteria="- must pass")
-    out = prompt.format_bead_as_goal(bead)
+    out = prompt.format_bead_as_build(bead)
     assert out.index("Issue metadata:") < out.index(_HEADING)
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal: absent / empty cases -> prompt unchanged
+# format_bead_as_build: absent / empty cases -> prompt unchanged
 # --------------------------------------------------------------------------
 
 
 def test_absent_acceptance_criteria_no_heading():
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _HEADING not in out
 
 
 def test_empty_string_acceptance_criteria_no_heading():
-    out = prompt.format_bead_as_goal(_base_bead(acceptance_criteria=""))
+    out = prompt.format_bead_as_build(_base_bead(acceptance_criteria=""))
     assert _HEADING not in out
 
 
 def test_whitespace_only_acceptance_criteria_no_heading():
-    out = prompt.format_bead_as_goal(_base_bead(acceptance_criteria="   \n  \t"))
+    out = prompt.format_bead_as_build(_base_bead(acceptance_criteria="   \n  \t"))
     assert _HEADING not in out
 
 
 def test_non_string_acceptance_criteria_no_heading():
-    out = prompt.format_bead_as_goal(_base_bead(acceptance_criteria=["a", "b"]))
+    out = prompt.format_bead_as_build(_base_bead(acceptance_criteria=["a", "b"]))
     assert _HEADING not in out
 
 
 def test_absent_vs_present_only_differ_by_block():
     """The present prompt equals the absent prompt plus the criteria block."""
-    absent = prompt.format_bead_as_goal(_base_bead())
+    absent = prompt.format_bead_as_build(_base_bead())
     block = "## Acceptance Criteria\n- must pass\n\n"
-    present = prompt.format_bead_as_goal(_base_bead(acceptance_criteria="- must pass"))
+    present = prompt.format_bead_as_build(_base_bead(acceptance_criteria="- must pass"))
     assert present == absent.replace(
         "When you believe this is done:",
         block + "When you believe this is done:",
@@ -145,7 +145,7 @@ def test_block_helper_recognizes_unhashed_heading_text():
 
 def test_recovery_prompt_still_renders_criteria():
     bead = _base_bead(acceptance_criteria="- recovered done")
-    out = prompt.format_bead_as_goal(bead, recovery=True)
+    out = prompt.format_bead_as_build(bead, recovery=True)
     assert "RECOVERY MODE" in out
     assert _HEADING in out
     assert "- recovered done" in out

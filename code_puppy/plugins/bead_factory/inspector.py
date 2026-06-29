@@ -1,6 +1,6 @@
-"""LLM inspector helpers for goal mode.
+"""LLM inspector helpers for build mode.
 
-Relocated from the former ``wiggum`` plugin's goal-completion verifier module
+Relocated from the former ``wiggum`` plugin's build-completion verifier module
 and renamed to the "inspectors" vocabulary (pure rename, zero behavior change).
 Imports are rewired to the ``code_puppy.plugins.bead_factory`` namespace.
 
@@ -9,8 +9,8 @@ implementor's latest response (and optionally its message history) and
 returns a structured verdict: complete/not + remediation notes.
 
 Each inspector has its own model and prompt -- see ``inspector_config.py`` for
-persistence. The goal loop fans these out in parallel; see
-``goal_loop._run_goal_inspectors``.
+persistence. The build loop fans these out in parallel; see
+``build_loop._run_build_inspectors``.
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ from .inspector_config import DEFAULT_INSPECTOR_PROMPT, InspectorConfig
 # and shouldn't ever need this many round-trips -- if one does, it's almost
 # certainly looping. 200 leaves plenty of headroom for inspection-heavy
 # verification (file reads + grep + a shell test run) without letting a
-# runaway inspector burn the whole goal loop's token budget.
-GOAL_INSPECTOR_REQUEST_LIMIT = 200
+# runaway inspector burn the whole build loop's token budget.
+BUILD_INSPECTOR_REQUEST_LIMIT = 200
 
 _READ_ONLY_TOOLS = {
     "list_files",
@@ -49,11 +49,11 @@ _READ_ONLY_TOOLS = {
 }
 
 
-class GoalInspectionOutput(BaseModel):
-    """Structured verdict from a goal inspector."""
+class BuildInspectionOutput(BaseModel):
+    """Structured verdict from a build inspector."""
 
     complete: bool = Field(
-        description="True only when the goal is verifiably complete."
+        description="True only when the build is verifiably complete."
     )
     notes: str = Field(
         description="Brief rationale plus remediation notes if incomplete."
@@ -61,13 +61,13 @@ class GoalInspectionOutput(BaseModel):
 
 
 @dataclass(frozen=True)
-class GoalInspection:
-    """Final, normalized verdict surfaced to goal-loop callers.
+class BuildInspection:
+    """Final, normalized verdict surfaced to build-loop callers.
 
     ``abstained`` means the inspector couldn't produce a verdict for an
     infrastructure reason -- model endpoint 404, auth failure, network
     timeout, misconfigured model, etc. Abstaining inspectors are excluded
-    from the all-complete tally; they neither pass nor fail the goal.
+    from the all-complete tally; they neither pass nor fail the build.
     """
 
     inspector_name: str
@@ -129,14 +129,14 @@ def _format_history_window(
     return "\n\n---\n\n".join(chunks)
 
 
-def _register_goal_history_tool(inspector_agent: Agent, messages: list[Any]) -> None:
+def _register_build_history_tool(inspector_agent: Agent, messages: list[Any]) -> None:
     @inspector_agent.tool
-    async def inspect_goal_history(
+    async def inspect_build_history(
         context: RunContext[None],
         query: str | None = None,
         limit: int = 20,
     ) -> str:
-        """Inspect the goal implementor's read-only message history.
+        """Inspect the build implementor's read-only message history.
 
         Args:
             query: Optional case-insensitive substring to search for in message parts.
@@ -167,42 +167,42 @@ def _strip_thinking_settings(model_settings: dict) -> None:
 
 
 def _inspector_user_prompt(
-    goal: str,
+    build: str,
     response: str | None,
     error: BaseException | None,
 ) -> str:
     error_text = f"\nRUN ERROR:\n{error}\n" if error else ""
     response_text = response or "(no response captured)"
     return f"""\
-Inspect whether this coding goal is verifiably complete.
+Inspect whether this coding build is verifiably complete.
 
-GOAL:
-{goal}
+BUILD:
+{build}
 
 LATEST AGENT RESPONSE:
 {response_text}
 {error_text}
-You have a read-only `inspect_goal_history` tool for the goal implementor's transcript.
+You have a read-only `inspect_build_history` tool for the build implementor's transcript.
 Use it when the latest response is not enough to confidently verify completion.
 """
 
 
-async def inspect_goal(
+async def inspect_build(
     *,
     inspector_config: InspectorConfig,
     implementor_agent: Any,
-    goal: str,
+    build: str,
     response: str | None,
     error: BaseException | None,
     history: list[Any] | None = None,
-) -> GoalInspection:
+) -> BuildInspection:
     """Run a single fresh, read-only inspector against the implementor's turn.
 
     Args:
         inspector_config: The inspector's persisted configuration (name, model, prompt).
-        implementor_agent: The goal implementor's agent -- used only to discover
+        implementor_agent: The build implementor's agent -- used only to discover
             which read-only tools should be available to the inspector.
-        goal: The original goal prompt.
+        build: The original build prompt.
         response: The implementor's most recent textual response (or None).
         error: Any exception raised on the implementor's latest turn.
         history: The implementor's message history (read-only).
@@ -215,8 +215,8 @@ async def inspect_goal(
     models_config = ModelFactory.load_config()
     if model_name not in models_config:
         # Misconfigured model is an infrastructure issue, not a real
-        # verdict -- abstain so we don't block the goal loop on it.
-        return GoalInspection(
+        # verdict -- abstain so we don't block the build loop on it.
+        return BuildInspection(
             inspector_name=inspector_config.name,
             complete=False,
             notes=(f"model {model_name!r} not present in the model config"),
@@ -226,7 +226,7 @@ async def inspect_goal(
 
     model = ModelFactory.get_model(model_name, models_config)
     inspector_instructions = inspector_config.prompt or DEFAULT_INSPECTOR_PROMPT
-    user_prompt = _inspector_user_prompt(goal, response, error)
+    user_prompt = _inspector_user_prompt(build, response, error)
     prepared = prepare_prompt_for_model(
         model_name,
         inspector_instructions,
@@ -241,9 +241,9 @@ async def inspect_goal(
         model=model,
         instructions=prepared.instructions,
         output_type=ToolOutput(
-            GoalInspectionOutput,
-            name="goal_inspection",
-            description="Verdict for the goal implementor's latest iteration.",
+            BuildInspectionOutput,
+            name="build_inspection",
+            description="Verdict for the build implementor's latest iteration.",
         ),
         retries=3,
         model_settings=model_settings,
@@ -264,18 +264,18 @@ async def inspect_goal(
         read_only_tools,
         model_name=model_name,
     )
-    _register_goal_history_tool(inspector_agent, list(history or []))
+    _register_build_history_tool(inspector_agent, list(history or []))
 
     # Run the inspector inside a sub-agent context so:
     #   * its tool-call banners (read_file, grep, shell, etc.) are suppressed
-    #   * its reasoning/agent-response chatter doesn't litter the goal loop UI
+    #   * its reasoning/agent-response chatter doesn't litter the build loop UI
     # The plumbing for this already exists in rich_renderer and tools/display --
     # they check is_subagent() + get_subagent_verbose() and skip rendering.
     try:
         with subagent_context(f"inspector:{inspector_config.name}"):
             result = await inspector_agent.run(
                 prepared.user_prompt,
-                usage_limits=UsageLimits(request_limit=GOAL_INSPECTOR_REQUEST_LIMIT),
+                usage_limits=UsageLimits(request_limit=BUILD_INSPECTOR_REQUEST_LIMIT),
             )
         output = result.output
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -286,7 +286,7 @@ async def inspect_goal(
         # (HTTP 4xx/5xx, network timeout, auth failure, vendor SDK bug...).
         # Abstain rather than fail -- the inspector couldn't render a verdict,
         # so it shouldn't get a vote.
-        return GoalInspection(
+        return BuildInspection(
             inspector_name=inspector_config.name,
             complete=False,
             notes=f"endpoint error ({type(exc).__name__}): {exc}",
@@ -303,7 +303,7 @@ async def inspect_goal(
         complete = bool(output.get("complete"))
         notes = str(output.get("notes", ""))
 
-    return GoalInspection(
+    return BuildInspection(
         inspector_name=inspector_config.name,
         complete=complete,
         notes=notes,

@@ -1,4 +1,4 @@
-"""bead_factory chain driver: the bead -> /goal -> close -> next loop.
+"""bead_factory chain driver: the bead -> build -> close -> next loop.
 
 The queue driver handles ``--max=N`` parsing, the ``/bead-chain`` command, the
 ``interactive_turn_end`` / ``interactive_turn_cancel`` hook handlers, and lazy
@@ -13,16 +13,16 @@ blocker gate, end-of-session rollup, and execution-hint mapping.
 Hook ordering (explicit)
 ------------------------
 ``_ensure_hooks_registered`` makes the ordering explicit: it registers the
-in-package goal hooks FIRST, then the chain-driver hooks, so chain logic runs
-strictly AFTER the per-turn goal decision. The goal loop's per-turn decision
-lives in :mod:`goal_loop` and its state in :mod:`loop_state`.
+in-package build hooks FIRST, then the chain-driver hooks, so chain logic runs
+strictly AFTER the per-turn build decision. The build loop's per-turn decision
+lives in :mod:`build_loop` and its state in :mod:`build_state`.
 
 Module layout:
 
   * :mod:`lifecycle` — state transitions: close, revert, invariant guard,
-    next-bead waterfall, goal-loop arming.
+    next-bead waterfall, build-loop arming.
   * :mod:`beads` — thin subprocess wrapper around ``bd``.
-  * :mod:`prompt` — bead-dict -> goal-prompt formatting.
+  * :mod:`prompt` — bead-dict -> build-prompt formatting.
   * :mod:`close_guard` — shell-command hook that blocks premature
     agent-issued bead closes.
   * :mod:`state` — dumb singleton dataclass for chain state.
@@ -43,15 +43,15 @@ from code_puppy.messaging import (
 )
 
 # ---------------------------------------------------------------------------
-# Goal loop prerequisite (in-package)
+# Build loop prerequisite (in-package)
 # ---------------------------------------------------------------------------
 #
-# bead-chain is NOT a goal engine — it's a queue driver that delegates the
-# LLM-judged completion loop to the goal loop. The per-turn decision lives in
-# :mod:`goal_loop` and its state in :mod:`loop_state`; both ship inside this
+# bead-chain is NOT a build engine — it's a queue driver that delegates the
+# LLM-judged completion loop to the build loop. The per-turn decision lives in
+# :mod:`build_loop` and its state in :mod:`build_state`; both ship inside this
 # package, so we import them directly.
-from . import goal_loop
-from . import loop_state as wiggum_state
+from . import build_loop
+from . import build_state
 from . import state
 from .beads import BeadsError, is_excluded_type
 from .beads_reads import next_ready, open_blocker_ids
@@ -64,7 +64,7 @@ from .lifecycle import (
     ensure_epic_in_progress,
     is_recovery_bead,
 )
-from .prompt import format_bead_as_goal
+from .prompt import format_bead_as_build
 
 logger = logging.getLogger(__name__)
 
@@ -78,32 +78,32 @@ _HOOKS_REGISTERED = False
 
 
 def _ensure_hooks_registered() -> None:
-    """Register the turn-end / cancel hooks once, in goal-then-chain order.
+    """Register the turn-end / cancel hooks once, in build-then-chain order.
 
     Ordering contract
     -----------------
-    The chain driver MUST observe the goal loop's per-turn decision BEFORE it
-    acts: every turn the goal loop (``goal_loop.on_interactive_turn_end``)
+    The chain driver MUST observe the build loop's per-turn decision BEFORE it
+    acts: every turn the build loop (``build_loop.on_interactive_turn_end``)
     decides whether the current bead is complete (inspectors passed) or needs
-    another iteration; only once the goal loop has stopped does the chain
+    another iteration; only once the build loop has stopped does the chain
     driver (``_on_interactive_turn_end``) close the bead and claim the next
     one.
 
     We make the ordering explicit and deterministic: register the in-package
-    goal hooks FIRST, then the chain-driver hooks. ``register_callback``
-    appends in call order and dedups by identity, so this guarantees the goal
+    build hooks FIRST, then the chain-driver hooks. ``register_callback``
+    appends in call order and dedups by identity, so this guarantees the build
     decision runs strictly before the chain driver every turn — even if the
-    goal hooks were already registered elsewhere (a no-op dedup that simply
+    build hooks were already registered elsewhere (a no-op dedup that simply
     preserves their earlier, still-ahead-of-us slot).
     """
     global _HOOKS_REGISTERED
     if _HOOKS_REGISTERED:
         return
-    # Goal loop FIRST: its per-turn decision must be observed before the chain
+    # Build loop FIRST: its per-turn decision must be observed before the chain
     # driver acts on it. Idempotent — if these were already registered, dedup
     # keeps their slot.
-    register_callback("interactive_turn_end", goal_loop.on_interactive_turn_end)
-    register_callback("interactive_turn_cancel", goal_loop.on_interactive_turn_cancel)
+    register_callback("interactive_turn_end", build_loop.on_interactive_turn_end)
+    register_callback("interactive_turn_cancel", build_loop.on_interactive_turn_cancel)
     register_callback("interactive_turn_end", _on_interactive_turn_end)
     register_callback("interactive_turn_cancel", _on_interactive_turn_cancel)
     _HOOKS_REGISTERED = True
@@ -161,7 +161,7 @@ def _parse_max_iterations(command: str) -> int | None | object:
 
 
 def handle_bead_chain_command(command: str) -> str | bool:
-    """Engage bead-chain: drive /goal across every ready bead in turn."""
+    """Engage bead-chain: drive build across every ready bead in turn."""
     if state.is_active():
         emit_info("🔗 bead-chain is already running.")
         return True
@@ -198,7 +198,7 @@ def handle_bead_chain_command(command: str) -> str | bool:
 
     # Last-line-of-defence assertion: matches the same check in
     # :func:`lifecycle.activate_next_bead`. An upstream filter leak
-    # here would arm wiggum with an epic and produce the 'cannot
+    # here would arm the build loop with an epic and produce the 'cannot
     # close epic' failure we hit in prod. Refuse early.
     if is_excluded_type(bead):
         emit_warning(
@@ -265,22 +265,22 @@ def handle_bead_chain_command(command: str) -> str | bool:
 
     # FB-8 (bead_chain-9n3): map the bead's recognized execution_* metadata
     # hints (effort/model/agent_type) onto code-puppy's serial knobs before
-    # arming wiggum, so they shape this /goal pass. Soft-fails per hint and
+    # arming the build loop, so they shape this build pass. Soft-fails per hint and
     # is a no-op when the bead carries no recognized metadata.
     applied_hints = apply_execution_hints(bead)
     if applied_hints:
         emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
-    goal_prompt = format_bead_as_goal(bead, recovery=recovery)
-    wiggum_state.start(goal_prompt)
+    build_prompt = format_bead_as_build(bead, recovery=recovery)
+    build_state.start(build_prompt)
 
     emit_success("🔗 BEAD-CHAIN ENGAGED!")
     emit_info(f"First bead: {bead_id} — {bead.get('title', '')}")
     if max_iterations is not None:
         emit_info(f"Safety cap: stopping after {max_iterations} bead(s).")
-    emit_info("Will claim → /goal → close → repeat until `bd ready` is empty.")
+    emit_info("Will claim → build → close → repeat until `bd ready` is empty.")
     emit_info("Press Ctrl+C to halt.")
-    return goal_prompt
+    return build_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -297,11 +297,11 @@ async def _on_interactive_turn_end(
     success: bool = True,
     error: BaseException | None = None,
 ) -> dict[str, Any] | None:
-    """Drive the bead → /goal → close → next-bead loop.
+    """Drive the bead → build → close → next-bead loop.
 
-    Returns None whenever the goal loop should keep driving (i.e., goal
+    Returns None whenever the build loop should keep driving (i.e., build
     mode still active for the current bead) or when we've run out of
-    beads. Returns a continuation dict only when we're handing the goal
+    beads. Returns a continuation dict only when we're handing the build
     loop a NEW bead to chew on.
     """
     del agent, prompt, result, success, error
@@ -309,15 +309,15 @@ async def _on_interactive_turn_end(
     if not state.is_active():
         return None
 
-    # Goal/wiggum is mid-goal — let it cook. We're guaranteed to run AFTER
-    # the goal decision on each turn because _ensure_hooks_registered
-    # registers the in-package goal/wiggum hook ahead of this one (see its
+    # The build loop is mid-build — let it cook. We're guaranteed to run AFTER
+    # the build decision on each turn because _ensure_hooks_registered
+    # registers the in-package build-loop hook ahead of this one (see its
     # docstring for the explicit ordering contract).
-    if wiggum_state.is_active():
+    if build_state.is_active():
         return None
 
-    # Wiggum just stopped — that means the bead is either complete
-    # (judges passed) or wiggum cancelled. We can't distinguish here,
+    # The build loop just stopped — that means the bead is either complete
+    # (judges passed) or the build loop cancelled. We can't distinguish here,
     # but interactive_turn_cancel runs for cancellation and would have
     # already stopped us; so reaching this branch with state.active
     # still True implies success.

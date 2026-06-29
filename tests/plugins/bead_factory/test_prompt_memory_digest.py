@@ -1,14 +1,14 @@
-"""Unit tests for the persistent-memory digest in the goal prompt.
+"""Unit tests for the persistent-memory digest in the build prompt.
 
 Coverage-audit gap FB-6 (``bead_chain-ndt``): bead-chain bridged none of
-bd's memory layer, so every bead started cold. ``format_bead_as_goal``
+bd's memory layer, so every bead started cold. ``format_bead_as_build``
 now folds ``bd memories`` into a ``## Persistent Memories`` block and the
 done-checklist nudges ``bd remember``. These tests pin:
 
 * the pure :func:`prompt._format_memory_digest_block` helper (present /
   absent / capping / truncation / pathological cases),
 * the impure :func:`prompt._fetch_memory_digest` soft-fail contract,
-* the wiring in :func:`prompt.format_bead_as_goal` (placement + the
+* the wiring in :func:`prompt.format_bead_as_build` (placement + the
   ``bd remember`` checklist step),
 * the :func:`beads.memories` parser.
 
@@ -43,7 +43,7 @@ def _base_bead(**extra) -> dict:
 
 
 def _stub_memories(monkeypatch, value):
-    """Force ``format_bead_as_goal`` to see exactly ``value`` memories."""
+    """Force ``format_bead_as_build`` to see exactly ``value`` memories."""
     monkeypatch.setattr(prompt, "_fetch_memory_digest", lambda: value)
 
 
@@ -115,38 +115,38 @@ def test_fetch_passes_through_memories(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# format_bead_as_goal wiring
+# format_bead_as_build wiring
 # --------------------------------------------------------------------------
 
 
-def test_goal_includes_memory_block_when_memories_exist(monkeypatch):
+def test_build_includes_memory_block_when_memories_exist(monkeypatch):
     _stub_memories(monkeypatch, {"gotcha": "dolt phantom DBs hide in 3 places"})
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _HEADING in out
     assert "dolt phantom DBs hide in 3 places" in out
 
 
-def test_goal_omits_memory_block_when_no_memories(monkeypatch):
+def test_build_omits_memory_block_when_no_memories(monkeypatch):
     _stub_memories(monkeypatch, {})
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _HEADING not in out
 
 
 def test_memory_block_appears_before_metadata(monkeypatch):
     _stub_memories(monkeypatch, {"k": "v"})
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert out.index(_HEADING) < out.index("Issue metadata:")
 
 
 def test_memory_block_appears_after_description(monkeypatch):
     _stub_memories(monkeypatch, {"k": "v"})
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert out.index("A thing that must be done.") < out.index(_HEADING)
 
 
 def test_done_checklist_nudges_bd_remember(monkeypatch):
     _stub_memories(monkeypatch, {})
-    out = prompt.format_bead_as_goal(_base_bead())
+    out = prompt.format_bead_as_build(_base_bead())
     assert _CHECKLIST_NUDGE in out
     # The nudge sits inside the done-checklist, after the commit step.
     assert out.index("When you believe this is done:") < out.index(_CHECKLIST_NUDGE)
@@ -154,7 +154,7 @@ def test_done_checklist_nudges_bd_remember(monkeypatch):
 
 def test_recovery_prompt_still_includes_memory_block(monkeypatch):
     _stub_memories(monkeypatch, {"k": "warm context"})
-    out = prompt.format_bead_as_goal(_base_bead(), recovery=True)
+    out = prompt.format_bead_as_build(_base_bead(), recovery=True)
     assert "RECOVERY MODE" in out
     assert _HEADING in out
     assert "warm context" in out

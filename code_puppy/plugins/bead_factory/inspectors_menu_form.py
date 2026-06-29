@@ -1,4 +1,4 @@
-"""Add/edit form + display helpers for the goal-inspectors TUI.
+"""Add/edit form + display helpers for the build-inspectors TUI.
 
 Ported into the bead_factory plugin from the core goal-judges menu
 (judge -> inspector rename, config repointed at inspectors.json). The

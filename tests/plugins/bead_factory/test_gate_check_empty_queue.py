@@ -15,7 +15,7 @@ These tests pin all three acceptance criteria:
   3. A gate-check failure warns and never halts the loop (soft-fail).
 
 Requires ``code_puppy`` on the path (lifecycle imports its messaging +
-wiggum state); ``conftest.py`` registers the plugin as a package.
+build state); ``conftest.py`` registers the plugin as a package.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from code_puppy.plugins.bead_factory import (
     state,
 )
 from code_puppy.plugins.bead_factory.beads import BeadsError
-from code_puppy.plugins.bead_factory import loop_state as wiggum_state
+from code_puppy.plugins.bead_factory import build_state
 
 
 def _bead(bead_id: str, **extra) -> dict:
@@ -55,7 +55,7 @@ def _stub_activation_surface(monkeypatch):
 
     Returns a dict of call-tracking lists the tests can assert against.
     """
-    calls: dict[str, list] = {"rollup": [], "claim": [], "wiggum": []}
+    calls: dict[str, list] = {"rollup": [], "claim": [], "build": []}
     monkeypatch.setattr(lifecycle, "open_blocker_ids", lambda _bid, _bead=None: [])
     monkeypatch.setattr(
         lifecycle,
@@ -64,12 +64,12 @@ def _stub_activation_surface(monkeypatch):
     )
     monkeypatch.setattr(lifecycle, "ensure_epic_in_progress", lambda _b: None)
     monkeypatch.setattr(lifecycle, "claim", lambda bid: calls["claim"].append(bid))
-    monkeypatch.setattr(lifecycle, "format_bead_as_goal", lambda *_a, **_k: "GOAL")
+    monkeypatch.setattr(lifecycle, "format_bead_as_build", lambda *_a, **_k: "BUILD")
     monkeypatch.setattr(
         lifecycle, "rollup_completed_epics", lambda: calls["rollup"].append(True)
     )
     monkeypatch.setattr(
-        wiggum_state, "start", lambda *a, **k: calls["wiggum"].append((a, k))
+        build_state, "start", lambda *a, **k: calls["build"].append((a, k))
     )
     return calls
 

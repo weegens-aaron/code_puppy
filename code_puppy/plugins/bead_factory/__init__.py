@@ -1,12 +1,12 @@
-"""bead_factory: a beads-driven goal loop with an inspector pane.
+"""bead_factory: a beads-driven build loop with an inspector pane.
 
 This package fuses two formerly separate Code Puppy subsystems into one
 self-contained plugin:
 
-* the **goal loop** — the goal-continuation policy and the goal-completion
+* the **build loop** — the build-continuation policy and the build-completion
   *inspector* orchestration (the ``/inspectors`` pane, formerly "judges"), and
 * the **bead-chain driver** — a ``bd ready`` queue driver that chains beads
-  through the goal loop one at a time.
+  through the build loop one at a time.
 
 Both subsystems now live directly in this package's flat namespace
 (``code_puppy.plugins.bead_factory.*``) — the bead-chain code is no longer a
@@ -16,7 +16,7 @@ shares its command/config keys.
 
 The only user-facing surface is ``/bead-factory`` (the chain driver) plus the
 ``/inspectors`` pane. The standalone loop commands and the old wiggum-alone
-loop mode have been retired; bead_factory drives the goal loop in goal-only
+loop mode have been retired; bead_factory drives the build loop in build
 mode. ``register_callbacks.py`` is the single entry point the plugin loader
 imports to wire everything up.
 """
