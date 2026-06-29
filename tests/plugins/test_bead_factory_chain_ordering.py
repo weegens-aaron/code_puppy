@@ -13,6 +13,7 @@ These lock in the contract rewired by bead-factory-7h4:
 from __future__ import annotations
 
 import asyncio
+import ast
 import importlib
 from pathlib import Path
 
@@ -30,25 +31,52 @@ from code_puppy.plugins.bead_factory import build_state
 # ---------------------------------------------------------------------------
 
 
-def test_no_cross_import_of_wiggum_plugin():
-    """No bead_factory module may *import* code_puppy.plugins.wiggum.
+_PLUGINS_PREFIX = "code_puppy.plugins."
+_SELF_PKG = "code_puppy.plugins.bead_factory"
 
-    Doc comments referencing the old path for historical context are fine;
-    an actual ``import``/``from`` statement is not.
+
+def _imported_absolute_modules(tree: ast.AST):
+    """Yield every *absolute* module name imported by an AST.
+
+    Relative imports (``from . import x``, ``from .beads import y``) carry
+    ``level > 0`` and never reach outside the package, so we skip them.
+    Parsing the AST -- rather than grepping text -- means docstrings, inline
+    comments, ALL-CAPS strings and emoji-bearing prose referencing the old
+    ``wiggum`` / ``bead_chain`` paths can never trip a false positive: only
+    a genuine ``import`` / ``from ... import`` statement is inspected.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                yield node.module
+
+
+def test_bead_factory_imports_zero_other_plugins():
+    """bead_factory must not import ANY sibling plugin (general ban).
+
+    Durability guard for the 'no cross-plugin dependency' invariant: the
+    former ``wiggum`` and ``bead-chain`` plugins may vanish any day, so no
+    module under ``code_puppy/plugins/bead_factory`` may import
+    ``code_puppy.plugins.<other>``. Self-imports of
+    ``code_puppy.plugins.bead_factory[.*]`` and relative imports are fine.
+
+    This supersedes the old wiggum-specific check -- the ban is now general
+    and covers wiggum, bead_chain, and every other sibling plugin.
     """
     pkg_dir = Path(cd.__file__).parent
     offenders: list[str] = []
-    for py in pkg_dir.glob("*.py"):
-        for raw in py.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if line.startswith("#"):
-                continue  # comment line — historical reference, allowed
-            if (
-                "import code_puppy.plugins.wiggum" in line
-                or "from code_puppy.plugins.wiggum" in line
-            ):
-                offenders.append(f"{py.name}: {line}")
-    assert not offenders, f"stale wiggum cross-imports found: {offenders}"
+    for py in sorted(pkg_dir.rglob("*.py")):
+        tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        for mod in _imported_absolute_modules(tree):
+            if not mod.startswith(_PLUGINS_PREFIX):
+                continue
+            if mod == _SELF_PKG or mod.startswith(_SELF_PKG + "."):
+                continue  # importing our own package is allowed
+            offenders.append(f"{py.name}: imports {mod}")
+    assert not offenders, f"bead_factory cross-plugin imports found: {offenders}"
 
 
 def test_chain_driver_and_lifecycle_share_in_package_build_state():
