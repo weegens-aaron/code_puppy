@@ -118,7 +118,7 @@ def test_resolved_gate_reopens_target_and_chain_continues(monkeypatch):
     result = lifecycle.activate_next_bead(None)
 
     assert result is not None, "resolved gate should re-open work"
-    assert result["reason"] == "bead_chain"
+    assert result["reason"] == "bead_factory"
     assert calls["claim"] == ["TARGET"], "the re-opened target gets claimed"
     assert calls["rollup"] == [], "we did NOT declare done -> no drain pass"
     assert state.get_state().active is True, "chain keeps trotting"

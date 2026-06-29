@@ -556,5 +556,5 @@ def activate_next_bead(
         "prompt": build_prompt,
         "clear_context": True,
         "delay": 0.5,
-        "reason": "bead_chain",
+        "reason": "bead_factory",
     }
