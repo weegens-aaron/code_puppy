@@ -340,8 +340,8 @@ def _handler_in(module_name):
 
 def test_plugin_owner_of_module_builtin():
     assert (
-        pc._plugin_owner_of_module("code_puppy.plugins.wiggum.register_callbacks")
-        == "wiggum"
+        pc._plugin_owner_of_module("code_puppy.plugins.bead_factory.register_callbacks")
+        == "bead_factory"
     )
 
 
@@ -374,9 +374,9 @@ def test_registry_commands_attributed_by_handler_module(monkeypatch):
 
     infos = [
         _FakeCommandInfo(
-            "wiggum",
+            "bf-loop",
             "Loop mode",
-            _handler_in("code_puppy.plugins.wiggum.register_callbacks"),
+            _handler_in("code_puppy.plugins.bead_factory.register_callbacks"),
         ),
         _FakeCommandInfo(
             "other",
@@ -391,8 +391,8 @@ def test_registry_commands_attributed_by_handler_module(monkeypatch):
     ]
     monkeypatch.setattr(command_registry, "get_unique_commands", lambda: infos)
 
-    assert pc._registry_commands("wiggum") == ["/wiggum — Loop mode"]
-    # Sibling plugin's command never leaks into wiggum's list.
+    assert pc._registry_commands("bead_factory") == ["/bf-loop — Loop mode"]
+    # Sibling plugin's command never leaks into bead_factory's list.
     assert pc._registry_commands("elsewhere") == ["/other — Other plugin command"]
     # Core commands aren't attributed to any plugin.
     assert pc._registry_commands("code_puppy") == ["/core_cmd — A core command"]
@@ -405,7 +405,7 @@ def test_registry_commands_lookup_failure_yields_empty(monkeypatch):
         raise RuntimeError("registry exploded")
 
     monkeypatch.setattr(command_registry, "get_unique_commands", _boom)
-    assert pc._registry_commands("wiggum") == []
+    assert pc._registry_commands("bead_factory") == []
 
 
 def test_get_commands_merges_callback_and_registry(clean_callbacks, monkeypatch):
