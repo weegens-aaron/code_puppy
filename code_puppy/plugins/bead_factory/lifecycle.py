@@ -1,8 +1,8 @@
 """Bead lifecycle helpers — the state-transition brain of bead-chain.
 
 This module owns the *state transitions*: how to close, revert, enforce
-the single-in_progress invariant, pick the next bead, and arm wiggum
-for the next iteration. The companion :mod:`chain_driver` module
+the single-in_progress invariant, pick the next bead, and arm the goal
+loop for the next iteration. The companion :mod:`chain_driver` module
 owns the *wiring*: slash-command registration, hook registration,
 the hook handlers themselves, CLI flag parsing.
 
@@ -319,7 +319,7 @@ def _reject_if_blocked(bead: dict[str, Any] | None, tier: str) -> bool:
 def activate_next_bead(
     just_closed: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Pick the next ready bead, claim it, arm wiggum goal mode.
+    """Pick the next ready bead, claim it, arm the goal loop.
 
     If ``just_closed`` is provided and had a parent epic, we prefer the
     next ready bead under that same epic before falling back to the

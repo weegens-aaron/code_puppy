@@ -10,9 +10,8 @@ User-facing surface:
   * ``/inspectors``                 -- configure goal-mode LLM inspectors
   * ``/bead-factory`` ``[--max=N]`` -- drive the goal loop across ready beads
 
-The standalone ``/bf-goal`` / ``/bf-loop`` / ``/bf-stop`` commands have been
-retired -- bead_factory is now driven solely via ``/bead-factory`` plus the
-``/inspectors`` pane (epic bead-factory-ak6).
+bead_factory is driven solely via ``/bead-factory`` plus the ``/inspectors``
+pane (epic bead-factory-ak6).
 
 Hook ordering
 -------------

@@ -1,11 +1,10 @@
 """Slash-command handlers for the bead_factory inspectors subsystem.
 
-Thin entry point for the ``/inspectors`` TUI command. The standalone
-``/bf-loop`` / ``/bf-goal`` / ``/bf-stop`` commands have been retired --
-bead_factory is now driven solely via ``/bead-factory`` (the chain driver)
-plus the ``/inspectors`` pane (epic bead-factory-ak6). The handler delegates
-to :mod:`inspectors_menu`; the plugin entry point (:mod:`register_callbacks`)
-only wires it to the command registry.
+Thin entry point for the ``/inspectors`` TUI command. bead_factory is driven
+solely via ``/bead-factory`` (the chain driver) plus the ``/inspectors`` pane
+(epic bead-factory-ak6). The handler delegates to :mod:`inspectors_menu`; the
+plugin entry point (:mod:`register_callbacks`) only wires it to the command
+registry.
 """
 
 from __future__ import annotations

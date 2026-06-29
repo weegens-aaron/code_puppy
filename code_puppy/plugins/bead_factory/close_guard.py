@@ -1,6 +1,6 @@
 """Detect agent attempts to close a bead while bead-chain is in flight.
 
-bead-chain delegates the close decision to wiggum's LLM judges: a bead
+bead-chain delegates the close decision to the LLM judges: a bead
 is only closed once the judges agree the goal is satisfied, via
 :func:`bd close` invoked by the plugin itself (see ``beads.close``).
 
@@ -335,7 +335,7 @@ async def on_run_shell_command(
         f"🛑 bead-chain blocked `{match.pattern_name}`.\n"
         f"  {match.description}\n"
         f"  bead-chain is currently driving bead {current} through "
-        f"wiggum's /goal mode. The bead will be closed automatically "
+        f"the goal loop. The bead will be closed automatically "
         f"once the LLM judges sign off — do NOT close it yourself.\n"
         f"  Keep working on the task. If you believe the bead is "
         f"complete, summarize what you did and let the judges decide."

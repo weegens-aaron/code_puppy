@@ -12,7 +12,7 @@ chain runs per bead.
 
 This module closes the *serial-compatible* slice of that gap. It maps
 the three keys that have a sensible one-worker meaning onto code-puppy's
-own knobs, right before wiggum's ``/goal`` loop is armed:
+own knobs, right before the ``/goal`` loop is armed:
 
     execution_effort     → reasoning budget   (config.set_openai_reasoning_effort)
     execution_model      → model select       (config.set_model_name)

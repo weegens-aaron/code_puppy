@@ -1,21 +1,24 @@
-"""bead_factory: a fused looping + beads-driven goal plugin.
+"""bead_factory: a beads-driven goal loop with an inspector pane.
 
-This package combines two previously separate Code Puppy plugins into one:
+This package fuses two formerly separate Code Puppy subsystems into one
+self-contained plugin:
 
-* the **wiggum** loop subsystem — the goal-continuation policy and the
-  goal-completion *inspector* orchestration (formerly "judges"), and
-* the **bead-chain** subsystem — a ``bd ready`` queue driver that chains beads
+* the **goal loop** — the goal-continuation policy and the goal-completion
+  *inspector* orchestration (the ``/inspectors`` pane, formerly "judges"), and
+* the **bead-chain driver** — a ``bd ready`` queue driver that chains beads
   through the goal loop one at a time.
 
-bead_factory is a deliberate *clean break*: it coexists with the original
-``wiggum`` and ``bead-chain`` plugins (both stay loaded) and exposes its own,
-distinct slash commands and config keys so nothing collides. Behavior is
-identical to the originals — only the command/config names and the
-"judges" -> "inspectors" vocabulary differ.
+Both subsystems now live directly in this package's flat namespace
+(``code_puppy.plugins.bead_factory.*``) — the bead-chain code is no longer a
+separate plugin. The unrelated standalone ``wiggum`` plugin happens to remain
+installed as independent legacy code, but bead_factory neither imports it nor
+shares its command/config keys.
 
-The wiggum and bead-chain runtime modules land directly in this package's flat
-namespace (``code_puppy.plugins.bead_factory.*``); ``register_callbacks.py`` is
-the single entry point the plugin loader imports to wire everything up.
+The only user-facing surface is ``/bead-factory`` (the chain driver) plus the
+``/inspectors`` pane. The standalone loop commands and the old wiggum-alone
+loop mode have been retired; bead_factory drives the goal loop in goal-only
+mode. ``register_callbacks.py`` is the single entry point the plugin loader
+imports to wire everything up.
 """
 
 # Single source of truth for the plugin version.

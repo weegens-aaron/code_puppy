@@ -299,10 +299,10 @@ async def _on_interactive_turn_end(
 ) -> dict[str, Any] | None:
     """Drive the bead → /goal → close → next-bead loop.
 
-    Returns None whenever wiggum should keep driving (i.e., goal mode
-    still active for the current bead) or when we've run out of beads.
-    Returns a continuation dict only when we're handing wiggum a NEW
-    bead to chew on.
+    Returns None whenever the goal loop should keep driving (i.e., goal
+    mode still active for the current bead) or when we've run out of
+    beads. Returns a continuation dict only when we're handing the goal
+    loop a NEW bead to chew on.
     """
     del agent, prompt, result, success, error
 

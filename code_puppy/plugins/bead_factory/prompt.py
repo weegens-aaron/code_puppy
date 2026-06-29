@@ -1,7 +1,7 @@
 """Bead → ``/goal`` prompt formatting.
 
 Pure (or near-pure) helpers that turn a ``bd ready``-shaped bead dict
-into the prompt string we hand off to wiggum's ``/goal`` mode. Split
+into the prompt string we hand off to the ``/goal`` loop. Split
 out of the chain driver to keep that wiring module under the 600-line
 plugin cap; also gives the prompt-shape tests one obvious target.
 
