@@ -5,15 +5,10 @@ work itself -- it imports the migrated submodules and registers their slash
 commands and lifecycle callbacks. All behavior lives in the submodules
 (:mod:`commands`, :mod:`goal_loop`, :mod:`chain_driver`, :mod:`close_guard`).
 
-Clean-break naming (decision bead-factory-vka) -- none of these collide with
-the still-loaded ``wiggum`` or ``bead-chain`` plugins:
+User-facing surface:
 
-  * ``/inspectors``                 (was ``/judges``)
-  * ``/bead-factory`` ``[--max=N]`` (was ``/bead-chain``)
-
-The iteration-cap config key (``bf_goal_max_iterations``) and the inspector
-banner (key ``bf_inspector`` / label ``INSPECTOR``) are likewise namespaced in
-the submodules so ``/set`` and banners never clash with wiggum.
+  * ``/inspectors``                 -- configure goal-mode LLM inspectors
+  * ``/bead-factory`` ``[--max=N]`` -- drive the goal loop across ready beads
 
 The standalone ``/bf-goal`` / ``/bf-loop`` / ``/bf-stop`` commands have been
 retired -- bead_factory is now driven solely via ``/bead-factory`` plus the
@@ -21,15 +16,13 @@ retired -- bead_factory is now driven solely via ``/bead-factory`` plus the
 
 Hook ordering
 -------------
-The goal/loop ``interactive_turn_end`` / ``interactive_turn_cancel`` hooks are
-NO LONGER registered here at startup. The chain driver is now their sole
-registrar: it registers them lazily, ahead of its own turn hooks, on first
-``/bead-factory`` use (:func:`chain_driver._ensure_hooks_registered`), in
-goal-then-chain order, so the goal decision is always observed before the chain
-acts.
+The goal-loop ``interactive_turn_end`` / ``interactive_turn_cancel`` hooks are
+registered lazily by the chain driver — its sole registrar — ahead of its own
+turn hooks on first ``/bead-factory`` use
+(:func:`chain_driver._ensure_hooks_registered`), in goal-then-chain order, so
+the goal decision is always observed before the chain acts.
 
-The close guard no-ops unless the chain (:mod:`state`) is active, so it never
-double-blocks alongside bead-chain's own close guard.
+The close guard no-ops unless the chain (:mod:`state`) is active.
 """
 
 from __future__ import annotations
@@ -66,6 +59,5 @@ register_command(
 # (_ensure_hooks_registered) on first /bead-factory use -- see the module
 # docstring for the goal-then-chain ordering contract.
 #
-# Close guard: no-ops unless the chain (state) is active, so it never
-# double-blocks alongside bead-chain's own close guard.
+# Close guard: no-ops unless the chain (state) is active.
 register_callback("run_shell_command", close_guard.on_run_shell_command)

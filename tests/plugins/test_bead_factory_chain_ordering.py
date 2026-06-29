@@ -58,7 +58,6 @@ def test_chain_driver_and_lifecycle_share_in_package_loop_state():
     # goal_loop drives the very same singleton, so arming from the chain
     # side is observed by the goal side.
     assert goal_loop.state is loop_state
-    assert cd._WIGGUM_AVAILABLE is True
 
 
 # ---------------------------------------------------------------------------
