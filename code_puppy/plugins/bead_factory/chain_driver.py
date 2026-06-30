@@ -64,7 +64,8 @@ from .lifecycle import (
     ensure_epic_in_progress,
     is_recovery_bead,
 )
-from .prompt import format_bead_as_build
+from .prompt import build_prompts_for_arming
+from .system_prompt import is_pin_active
 
 logger = logging.getLogger(__name__)
 
@@ -271,8 +272,15 @@ def handle_bead_factory_command(command: str) -> str | bool:
     if applied_hints:
         emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
-    build_prompt = format_bead_as_build(bead, recovery=recovery)
-    build_state.start(build_prompt)
+    # De-dup arming (bead-factory-462): the inspector copy is always the
+    # FULL render; the implementor copy is slimmed to scaffolding-only when
+    # the bead's content is pinned into the system prompt (is_pin_active),
+    # so the implementor isn't handed the same contract twice. The pin
+    # guard is True here — state is active and current_bead was just set.
+    build_prompt, inspector_prompt = build_prompts_for_arming(
+        bead, recovery=recovery, inject_content=is_pin_active()
+    )
+    build_state.start(build_prompt, inspector_prompt=inspector_prompt)
 
     emit_success("🔗 BEAD-FACTORY ENGAGED!")
     emit_info(f"First bead: {bead_id} — {bead.get('title', '')}")

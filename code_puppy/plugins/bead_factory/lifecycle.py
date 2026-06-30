@@ -61,7 +61,8 @@ from .lifecycle_close import (
     probe_resolved_gates,
     rollup_completed_epics,
 )
-from .prompt import format_bead_as_build
+from .prompt import build_prompts_for_arming
+from .system_prompt import is_pin_active
 
 
 __all__ = [
@@ -545,10 +546,16 @@ def activate_next_bead(
     if applied_hints:
         emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
-    build_prompt = format_bead_as_build(bead, recovery=recovery)
+    # De-dup arming (bead-factory-462): inspector gets the FULL render; the
+    # implementor copy is slimmed to scaffolding-only when the bead's content
+    # is pinned into the system prompt (is_pin_active), avoiding the
+    # duplicate-contract-on-the-initial-prompt problem.
+    build_prompt, inspector_prompt = build_prompts_for_arming(
+        bead, recovery=recovery, inject_content=is_pin_active()
+    )
 
     # Hand the wheel to the build loop for the next N turns.
-    build_state.start(build_prompt)
+    build_state.start(build_prompt, inspector_prompt=inspector_prompt)
 
     action = "recovered" if recovery else "claimed"
     emit_info(f"🔗 bead-factory {action} {bead_id} — {bead.get('title', '')}")

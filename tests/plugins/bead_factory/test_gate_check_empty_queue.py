@@ -64,7 +64,14 @@ def _stub_activation_surface(monkeypatch):
     )
     monkeypatch.setattr(lifecycle, "ensure_epic_in_progress", lambda _b: None)
     monkeypatch.setattr(lifecycle, "claim", lambda bid: calls["claim"].append(bid))
-    monkeypatch.setattr(lifecycle, "format_bead_as_build", lambda *_a, **_k: "BUILD")
+    # bead-factory-462: lifecycle now arms via build_prompts_for_arming, which
+    # returns (implementor_prompt, inspector_prompt). Stub it so the gate-check
+    # branch tests don't shell out to bd for memory/lint blocks.
+    monkeypatch.setattr(
+        lifecycle,
+        "build_prompts_for_arming",
+        lambda *_a, **_k: ("BUILD", "BUILD_FULL"),
+    )
     monkeypatch.setattr(
         lifecycle, "rollup_completed_epics", lambda: calls["rollup"].append(True)
     )

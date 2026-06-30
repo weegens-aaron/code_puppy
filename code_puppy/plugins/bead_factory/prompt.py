@@ -30,6 +30,8 @@ from .prompt_blocks import (
 __all__ = [
     "format_bead_as_build",
     "format_bead_content",
+    "format_bead_scaffolding",
+    "build_prompts_for_arming",
     "is_triaged_bug",
     "TRIAGE_MARKER",
 ]
@@ -195,6 +197,65 @@ _BUG_DISCOVERY_PROTOCOL: str = (
     "Do NOT close any bead yourself — the inspectors are the only legitimate\n"
     "closer. The bug-discovery protocol is about *filing*, not closing.\n"
 )
+
+
+# The build loop's "definition of done" checklist. Extracted to a module
+# constant (bead-factory-462) so the FULL build prompt
+# (:func:`format_bead_as_build`) and the slimmed scaffolding-only prompt
+# (:func:`format_bead_scaffolding`) render it identically — one source of
+# truth, no drift. DRY.
+_DONE_CHECKLIST: str = (
+    "When you believe this is done:\n"
+    "1. Run linters (`ruff check --fix`, `ruff format .`).\n"
+    "2. Run any relevant tests.\n"
+    "3. Commit the work (no Claude co-author, per project rules).\n"
+    "4. Record any durable, reusable insight you learned (a gotcha, a\n"
+    "   design decision, a non-obvious root cause) so the next bead\n"
+    "   starts warm: `bd remember <insight> --key=<short-slug>`.\n"
+    "\n"
+    "LLM inspectors will verify completion before this bead is closed."
+)
+
+
+# One-line pointer that replaces the bead's own fields in the implementor's
+# user-message build prompt once a chain is active (bead-factory-462). The
+# bead CONTENT is pinned into the compaction-protected system prompt
+# (bead-factory-5wv / system_prompt.on_load_prompt) under the
+# "Protected Task Contract (bead-factory)" header, so repeating it in the
+# user message would duplicate the same instruction twice on the initial
+# prompt. The implementor reads the pinned contract; this just points there.
+#
+# CRITICAL: this slimming applies ONLY to the implementor. The inspector is
+# a raw pydantic_ai agent that never receives the load_prompt system
+# injection, so its build copy stays the FULL compose (see
+# :func:`build_prompts_for_arming`).
+_PINNED_CONTRACT_POINTER: str = (
+    "Complete the Active Bead pinned in your system prompt above — the\n"
+    "'Protected Task Contract (bead-factory)' section. Its title,\n"
+    "description, metadata, design, acceptance criteria and notes are the\n"
+    "contract you are graded against; treat that pinned block as\n"
+    "authoritative even if earlier conversation has been summarized away.\n"
+    "\n"
+)
+
+
+def _select_preamble(bead: dict[str, Any], *, recovery: bool = False) -> str:
+    """Pick the mutually-exclusive mode preamble for a build prompt.
+
+    Shared by :func:`format_bead_as_build` and
+    :func:`format_bead_scaffolding` so the two renderers can't drift on
+    preamble precedence. Evaluated in this order (see
+    :func:`format_bead_as_build` for the full rationale):
+
+    1. ``recovery=True`` → :data:`_RECOVERY_PREAMBLE`.
+    2. Triaged bug (:func:`is_triaged_bug`) → :data:`_TRIAGE_VERIFY_PREAMBLE`.
+    3. Otherwise → ``""`` (ordinary work).
+    """
+    if recovery:
+        return _RECOVERY_PREAMBLE
+    if is_triaged_bug(bead):
+        return _TRIAGE_VERIFY_PREAMBLE
+    return ""
 
 
 def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
@@ -415,11 +476,7 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     # project framing, not per-bead detail.
     memory_block = _format_memory_digest_block(_fetch_memory_digest())
 
-    preamble = ""
-    if recovery:
-        preamble = _RECOVERY_PREAMBLE
-    elif is_triaged_bug(bead):
-        preamble = _TRIAGE_VERIFY_PREAMBLE
+    preamble = _select_preamble(bead, recovery=recovery)
 
     return preamble + (
         f"Complete beads issue {bead_id}: {title}\n"
@@ -434,14 +491,81 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
         f"{acceptance_block}"
         f"{lint_block}"
         f"{related_block}"
-        f"When you believe this is done:\n"
-        f"1. Run linters (`ruff check --fix`, `ruff format .`).\n"
-        f"2. Run any relevant tests.\n"
-        f"3. Commit the work (no Claude co-author, per project rules).\n"
-        f"4. Record any durable, reusable insight you learned (a gotcha, a\n"
-        f"   design decision, a non-obvious root cause) so the next bead\n"
-        f"   starts warm: `bd remember <insight> --key=<short-slug>`.\n"
-        f"\n"
-        f"LLM inspectors will verify completion before this bead is closed."
+        f"{_DONE_CHECKLIST}"
         f"{_BUG_DISCOVERY_PROTOCOL}"
     )
+
+
+def format_bead_scaffolding(bead: dict[str, Any], *, recovery: bool = False) -> str:
+    """Render ONLY the chain scaffolding — no bead content fields.
+
+    The de-duplication counterpart to :func:`format_bead_content`
+    (bead-factory-462, epic bead-factory-cri). Once the bead's own fields
+    are pinned into the compaction-protected system prompt
+    (bead-factory-5wv), repeating them in the implementor's user-message
+    build prompt sends the same instruction twice. This renders the
+    *surrounding* scaffolding only — mode preamble, a one-line pointer to
+    the pinned contract, the persistent-memories digest, the
+    template-lint warnings, the done-checklist and the bug-discovery
+    protocol — and deliberately omits the bead's title, description,
+    metadata, design, acceptance criteria, notes and related-context
+    edges. Those ride the pinned system prompt instead.
+
+    Block order tracks :func:`format_bead_as_build` for the scaffolding it
+    keeps, so the two stay in lockstep on shared sections (preamble,
+    memory digest, lint, done-checklist, bug protocol — all sourced from
+    the same constants / builders, DRY).
+
+    Impurity matches the full renderer: the soft-failing ``bd memories``
+    and ``bd lint`` fetches. Both soft-default to ``""`` so a bd build
+    lacking those subcommands leaves the prompt scaffolding-only.
+    """
+    bead_id = str(bead.get("id", "<unknown>"))
+
+    lint_block = _format_lint_warnings_block(_fetch_lint_warnings(bead_id))
+    memory_block = _format_memory_digest_block(_fetch_memory_digest())
+
+    preamble = _select_preamble(bead, recovery=recovery)
+
+    return preamble + (
+        f"{_PINNED_CONTRACT_POINTER}"
+        f"{memory_block}"
+        f"{lint_block}"
+        f"{_DONE_CHECKLIST}"
+        f"{_BUG_DISCOVERY_PROTOCOL}"
+    )
+
+
+def build_prompts_for_arming(
+    bead: dict[str, Any],
+    *,
+    recovery: bool = False,
+    inject_content: bool = True,
+) -> tuple[str, str]:
+    """Render the (implementor, inspector) build-prompt pair for one bead.
+
+    Single source of truth for the de-dup arming decision (bead-factory-462),
+    shared by both arm sites (``chain_driver`` + ``lifecycle``) so they
+    can't drift. DRY.
+
+    Returns ``(implementor_prompt, inspector_prompt)``:
+
+    * ``inspector_prompt`` is ALWAYS the FULL compose (content +
+      scaffolding) from :func:`format_bead_as_build`. The inspector is a
+      raw pydantic_ai agent that never receives the ``load_prompt`` system
+      injection, so it must carry the bead's content inline — this is the
+      CRITICAL invariant from bead-factory-462.
+    * ``implementor_prompt`` drops the bead's own fields
+      (:func:`format_bead_scaffolding`) when ``inject_content`` is True —
+      the content rides the pinned system prompt (bead-factory-5wv) — and
+      otherwise falls back to the full render so non-injected paths still
+      see the whole bead.
+
+    Callers pass ``inject_content`` from the live pin guard
+    (:func:`system_prompt.is_pin_active`) so the slimming fires exactly
+    when the content is guaranteed to be pinned.
+    """
+    full = format_bead_as_build(bead, recovery=recovery)
+    if inject_content:
+        return format_bead_scaffolding(bead, recovery=recovery), full
+    return full, full

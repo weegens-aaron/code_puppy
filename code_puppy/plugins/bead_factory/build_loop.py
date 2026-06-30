@@ -261,11 +261,17 @@ async def on_interactive_turn_end(
         state.stop()
         return None
 
+    # The inspector is a raw pydantic_ai agent with no system-prompt pin, so
+    # it gets the FULL content+scaffolding copy (bead-factory-462). The
+    # implementor continuation below re-sends the (possibly slimmed) copy,
+    # since its bead content rides the pinned system prompt.
+    inspector_build = state.get_inspector_prompt() or build_prompt
+
     loop_num = state.increment()
     try:
         complete, notes, _verdicts = await _run_build_inspectors(
             agent=agent,
-            build=build_prompt,
+            build=inspector_build,
             result=result,
             error=error,
         )
