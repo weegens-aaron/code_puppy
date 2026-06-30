@@ -107,9 +107,26 @@ def test_fail_soft_returns_none_on_render_error(monkeypatch):
 
 
 def test_registered_as_load_prompt_callback():
-    """The wiring module registers the pin under the load_prompt hook."""
+    """The wiring module registers the pin under the load_prompt hook.
+
+    Registration is an *import-time* side effect of ``register_callbacks``. A
+    plain ``import`` is a no-op once the module is cached in ``sys.modules``,
+    so under the full suite (where an earlier test already imported it and the
+    autouse callback snapshot/restore fixture in ``tests/conftest.py`` later
+    rolled the registry back to a pre-import snapshot) the callback would be
+    missing and this assertion would flake (bead-factory-w2y).
+
+    Forcing ``importlib.reload`` re-executes the module-scope registration,
+    which is idempotent: ``register_callback`` dedups by identity and
+    ``register_command`` just overwrites its registry entry. That makes the
+    wiring assertion deterministic regardless of suite ordering.
+    """
+    import importlib
+
     import code_puppy.callbacks as callbacks
-    import code_puppy.plugins.bead_factory.register_callbacks  # noqa: F401
+    import code_puppy.plugins.bead_factory.register_callbacks as register_callbacks
+
+    importlib.reload(register_callbacks)
 
     registered = callbacks._callbacks.get("load_prompt", [])
     assert system_prompt.on_load_prompt in registered
