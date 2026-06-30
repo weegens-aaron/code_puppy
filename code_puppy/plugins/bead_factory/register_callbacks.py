@@ -29,7 +29,7 @@ from __future__ import annotations
 from code_puppy.callbacks import register_callback
 from code_puppy.command_line.command_registry import register_command
 
-from . import chain_driver, close_guard, commands
+from . import chain_driver, close_guard, commands, system_prompt
 
 # ---------------------------------------------------------------------------
 # Slash commands
@@ -60,3 +60,9 @@ register_command(
 #
 # Close guard: no-ops unless the chain (state) is active.
 register_callback("run_shell_command", close_guard.on_run_shell_command)
+
+# Protected task contract (epic bead-factory-cri / bead-factory-5wv): while a
+# chain is active, pin the active bead's content into the compaction-protected
+# system prompt so the implementor's contract survives arbitrarily deep
+# tool-call histories. No-ops (returns None) when no chain is running.
+register_callback("load_prompt", system_prompt.on_load_prompt)
