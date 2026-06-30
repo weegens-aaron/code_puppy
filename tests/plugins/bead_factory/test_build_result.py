@@ -47,6 +47,38 @@ def test_tally_excludes_abstainers_from_vote():
     assert r.total == r.passed + r.failed + r.abstained
 
 
+def test_all_pass_counts():
+    # Every voting inspector passes -> passed == total, no fails, no abstains.
+    verdicts = [_verdict(n, complete=True) for n in ("a", "b", "c")]
+    r = build_result(verdicts, StopReason.COMPLETE)
+    assert (r.total, r.passed, r.failed, r.abstained) == (3, 3, 0, 0)
+    assert r.total == r.passed + r.failed + r.abstained
+    assert r.completed is True
+
+
+def test_all_fail_counts():
+    # Every voting inspector fails -> failed == total, no passes, no abstains.
+    verdicts = [_verdict(n, complete=False) for n in ("a", "b", "c")]
+    r = build_result(verdicts, StopReason.MAX_ITERATIONS)
+    assert (r.total, r.passed, r.failed, r.abstained) == (3, 0, 3, 0)
+    assert r.total == r.passed + r.failed + r.abstained
+    assert r.completed is False
+
+
+def test_all_abstain_counts():
+    # Every inspector abstains -> all counted in abstained, never as pass/fail,
+    # and the build can't be deemed complete (no voting verdicts).
+    verdicts = [
+        _verdict("a", abstained=True),
+        _verdict("b", abstained=True, complete=True),  # complete ignored
+        _verdict("c", abstained=True, complete=False),
+    ]
+    r = build_result(verdicts, StopReason.MAX_ITERATIONS)
+    assert (r.total, r.passed, r.failed, r.abstained) == (3, 0, 0, 3)
+    assert r.total == r.passed + r.failed + r.abstained
+    assert r.completed is False
+
+
 def test_completed_iff_stop_reason_complete():
     verdicts = [_verdict("a", complete=True)]
     assert build_result(verdicts, StopReason.COMPLETE).completed is True
