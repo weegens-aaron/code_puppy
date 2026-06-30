@@ -10,6 +10,23 @@
 > judgment result contains and *how* it travels from the build-loop turn hook to
 > the chain driver. Implementation slices follow it exactly.
 
+## Scope of this bead (decision-only)
+
+`bead-factory-1r6` is a **decision** bead. Its deliverable is *this ADR + the
+bead's design field* — the field set and the transport mechanism, justified
+against the binding constraint and the fail-soft discipline. **No production
+code is written here by design.**
+
+The `BuildResult`/`StopReason` dataclasses, the `build_result.py` sink module,
+and the `set_last(...)`/`take_last()` call sites are **deliberately deferred** to
+the downstream implementation slice `bead-factory-ush`, which this ADR
+**blocks**. That blocking edge is the contract: `ush` cannot start until this
+decision lands, and the absence of `build_result.py` in the tree right now is
+the *expected* state of a decision bead, not an incomplete one. "Implementation
+slices follow it exactly" above means `ush` (and the headless slice
+`bead-factory-ogz`) build *to* this spec — it does **not** mean code lands in
+this bead.
+
 ## Context
 
 When the build loop's inspector judgment finishes, `build_loop.on_interactive_turn_end`
