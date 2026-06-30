@@ -410,6 +410,15 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     (:func:`_fetch_lint_warnings`) soft-fails to ``[]`` so a bd build
     lacking the ``lint`` subcommand leaves the prompt unchanged.
 
+    The bead's free-form ``notes`` field (bead-factory-8u4) is rendered
+    as a ``## Notes`` block (:func:`_format_notes_block`) immediately
+    after the acceptance block — keeping the bead-content blocks grouped
+    in the same order as :func:`format_bead_content`. ``notes`` is the
+    channel inspection remediation feedback is appended to (the rework
+    contract), so surfacing it lets a fresh implementor *and* the
+    inspectors — who read this same compose — see the feedback meant to
+    steer the next attempt. Absent/empty -> the prompt is unchanged.
+
     Likewise (coverage-audit gap FB-7), a non-empty ``design`` field is
     rendered as a ``## Design`` block (:func:`_format_design_block`)
     just before the acceptance block — high-value for ``decision``/
@@ -453,6 +462,18 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     design_block = _format_design_block(bead)
     acceptance_block = _format_acceptance_criteria_block(bead)
 
+    # bead-factory-8u4: render the bead's own ``notes`` field — bd's
+    # free-form running-commentary, and the channel inspection remediation
+    # feedback is appended to (the rework contract). It rides the same
+    # claim-time `bd ready` dict the formatter already consumes, so simply
+    # rendering it surfaces existing notes to BOTH the implementor agent
+    # and the LLM inspectors (they read this same compose). Placed right
+    # after the acceptance block so the bead-content blocks stay grouped —
+    # mirroring the order in :func:`format_bead_content` (design ->
+    # acceptance -> notes -> related). "" when absent, so the prompt is
+    # byte-for-byte unchanged for note-less beads.
+    notes_block = _format_notes_block(bead)
+
     # FB-5: run `bd lint <id>` on the claim path and fold
     # any missing-template-section warnings into the build prompt. Building
     # the prompt happens immediately after `bd update --claim`, so the
@@ -489,6 +510,7 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
         f"\n"
         f"{design_block}"
         f"{acceptance_block}"
+        f"{notes_block}"
         f"{lint_block}"
         f"{related_block}"
         f"{_DONE_CHECKLIST}"

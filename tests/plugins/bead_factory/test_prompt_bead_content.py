@@ -196,7 +196,9 @@ def test_content_fields_appear_in_full_build_prompt(monkeypatch):
     monkeypatch.setattr(prompt_blocks, "memories", lambda: {})
     monkeypatch.setattr(prompt_blocks, "lint_warnings", lambda _id: [])
 
-    bead = _base_bead(design="why", acceptance_criteria="- done")
+    bead = _base_bead(
+        design="why", acceptance_criteria="- done", notes="steering feedback"
+    )
     content = prompt.format_bead_content(bead)
     build = prompt.format_bead_as_build(bead)
     # Each non-empty content block reappears verbatim in the build prompt.
@@ -204,6 +206,26 @@ def test_content_fields_appear_in_full_build_prompt(monkeypatch):
     assert "## Design\nwhy" in content
     assert "## Acceptance Criteria\n- done" in build
     assert "## Acceptance Criteria\n- done" in content
+    # bead-factory-8u4: the ``notes`` block now rides the build prompt too,
+    # so both the implementor and the LLM inspectors see it.
+    assert "## Notes\nsteering feedback" in build
+    assert "## Notes\nsteering feedback" in content
+
+
+def test_notes_rendered_in_build_prompt(monkeypatch):
+    """format_bead_as_build surfaces ``notes`` (bead-factory-8u4 goal)."""
+    from code_puppy.plugins.bead_factory import prompt_blocks
+
+    monkeypatch.setattr(prompt_blocks, "memories", lambda: {})
+    monkeypatch.setattr(prompt_blocks, "lint_warnings", lambda _id: [])
+
+    # Present -> a ## Notes block appears.
+    build = prompt.format_bead_as_build(_base_bead(notes="see the rework feedback"))
+    assert "## Notes\nsee the rework feedback\n" in build
+
+    # Absent -> no Notes block (prompt byte-for-byte unchanged on that axis).
+    bare = prompt.format_bead_as_build(_base_bead())
+    assert "## Notes" not in bare
 
 
 if __name__ == "__main__":

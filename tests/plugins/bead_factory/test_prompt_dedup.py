@@ -111,12 +111,13 @@ def test_arming_injected_slims_implementor_only():
     assert "it works" not in implementor
     assert "rework feedback" not in implementor
     # CRITICAL invariant: inspector copy stays FULL (carries the content).
-    # NB: format_bead_as_build historically omits the ``notes`` field (only
-    # the pinned format_bead_content render carries it), so we don't assert
-    # notes here -- that gap predates bead-factory-462.
+    # Since bead-factory-8u4, format_bead_as_build also renders the ``notes``
+    # field, so the inspector (full compose) now surfaces it too -- while the
+    # slimmed implementor (asserted above) still omits it.
     assert bead["description"] in inspector
     assert bead["design"] in inspector
     assert "it works" in inspector
+    assert "rework feedback" in inspector
     # Both still carry the shared scaffolding.
     assert "BUG DISCOVERY PROTOCOL" in implementor
     assert "BUG DISCOVERY PROTOCOL" in inspector
