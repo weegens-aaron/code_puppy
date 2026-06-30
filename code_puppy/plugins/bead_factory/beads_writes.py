@@ -35,6 +35,7 @@ __all__ = [
     "claim",
     "revert_to_open",
     "close",
+    "append_notes",
     "has_epic_in_progress",
     "close_eligible_epics",
     "check_gates",
@@ -77,6 +78,25 @@ def close(bead_id: str, *, reason: str | None = None) -> None:
     if reason:
         args.extend(["--reason", reason])
     _beads._run_bd(*args)
+
+
+def append_notes(bead_id: str, notes: str) -> None:
+    """Append ``notes`` to a bead's notes field via ``bd update``.
+
+    bead-factory-t4c: the build loop's inspection remediation feedback is
+    APPENDED to the active bead's notes field (rather than inlined into the
+    continuation prompt) so it (a) persists and accumulates across
+    fresh-context retries and (b) reaches the implementor through the SAME
+    live-bead pipeline as any other note — rendered by 8u4, re-fetched live
+    by 2mb, pinned into the protected system prompt by 5wv. The bead becomes
+    the single source of remediation feedback.
+
+    Wraps ``bd update <id> --append-notes <text>``. Raises
+    :class:`BeadsError` on infrastructure failure so the build loop can
+    soft-fail to inlining the block for that one iteration.
+    """
+    _validate_bead_id(bead_id)
+    _beads._run_bd("update", bead_id, "--append-notes", notes)
 
 
 def has_epic_in_progress() -> bool:

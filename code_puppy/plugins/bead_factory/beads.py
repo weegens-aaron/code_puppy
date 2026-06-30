@@ -42,6 +42,7 @@ __all__ = [
     "claim",
     "revert_to_open",
     "close",
+    "append_notes",
     # Epic / gate housekeeping
     "close_eligible_epics",
     "check_gates",
@@ -518,6 +519,7 @@ try:  # package context
         show,
     )
     from .beads_writes import (  # noqa: F401
+        append_notes,
         check_gates,
         claim,
         close,
@@ -543,6 +545,7 @@ except ImportError:  # flat context (bare ``import beads`` under pytest)
         show,
     )
     from beads_writes import (  # type: ignore[no-redef]  # noqa: F401
+        append_notes,
         check_gates,
         claim,
         close,

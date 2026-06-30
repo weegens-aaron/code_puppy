@@ -263,12 +263,61 @@ async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_inspe
     finally:
         state.stop()
 
+    # No bead_id was set, so the append soft-fails and we fall back to
+    # inlining the notes (bead-factory-t4c soft-fail contract).
     assert next_request is not None
     assert next_request["reason"] == "build"
     assert next_request["clear_context"] is True
     assert "fix the bug" in next_request["prompt"]
     assert "bug still present in foo.py" in next_request["prompt"]
     assert "Inspector remediation notes" in next_request["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_turn_end_appends_remediation_to_active_bead(isolated_inspectors):
+    """bead-factory-t4c: with a live bead_id, the remediation block is APPENDED
+    to the bead's notes (delimited per loop) instead of inlined."""
+    from code_puppy.plugins.bead_factory import beads
+    from code_puppy.plugins.bead_factory import build_state as state
+
+    state.start("fix the bug", bead_id="bf-1")
+    inspector_config.add_inspector(InspectorConfig(name="checker", model="m"))
+
+    async def fake_inspector_build(**_kwargs):
+        return _verdict("checker", complete=False, notes="bug still present in foo.py")
+
+    append_mock = MagicMock()
+    try:
+        with (
+            patch.object(build_loop, "inspect_build", new=fake_inspector_build),
+            patch.object(build_loop, "display_inspector"),
+            patch.object(beads, "append_notes", new=append_mock),
+            patch.object(
+                build_loop,
+                "_refresh_build_prompts",
+                return_value=("RERENDERED build prompt", "inspector prompt"),
+            ),
+        ):
+            next_request = await build_loop.on_interactive_turn_end(
+                agent=_fake_agent(),
+                prompt="fix the bug",
+                result=MagicMock(output="I tried"),
+            )
+    finally:
+        state.stop()
+
+    # The block was appended to the ACTIVE bead, delimited per loop.
+    append_mock.assert_called_once()
+    called_bead_id, called_block = append_mock.call_args.args
+    assert called_bead_id == "bf-1"
+    assert called_block.startswith("### Inspection remediation (loop #1)")
+    assert "bug still present in foo.py" in called_block
+
+    # Happy path: the bead is the single source — NO inline concat.
+    assert next_request is not None
+    assert next_request["reason"] == "build"
+    assert "Inspector remediation notes" not in next_request["prompt"]
+    assert next_request["prompt"] == "RERENDERED build prompt"
 
 
 @pytest.mark.asyncio

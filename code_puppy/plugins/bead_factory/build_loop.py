@@ -104,6 +104,46 @@ def _format_remediation_block(verdicts: list[BuildInspection]) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _delimited_remediation_block(loop_num: int, notes: str) -> str:
+    """Prefix the formatted verdicts with a per-iteration delimiter.
+
+    bead-factory-t4c: each loop's remediation block is APPENDED to the
+    active bead's notes field, so without a delimiter the accumulated
+    notes would read as one undifferentiated wall of text. A
+    ``### Inspection remediation (loop #N)`` header keeps the history
+    readable as it grows across retries.
+    """
+    return f"### Inspection remediation (loop #{loop_num})\n{notes}"
+
+
+def _append_remediation_to_bead(bead_id: str | None, block: str) -> bool:
+    """Append ``block`` to the active bead's notes field. Soft-fail.
+
+    bead-factory-t4c: the bead is the SINGLE source of remediation
+    feedback. Appending here (rather than inlining into the continuation
+    prompt) makes the feedback (a) persist and accumulate across
+    iterations and (b) reach the fresh-context implementor through the
+    same live-bead pipeline as any other note — 8u4 renders it, 2mb
+    re-fetches it live, 5wv pins it into the protected system prompt.
+
+    Returns ``True`` when the append lands, ``False`` on ANY failure (no
+    bead id, bd missing/timeout/non-zero, validation error). A ``False``
+    return tells the caller to fall back to inlining the block into the
+    continuation prompt so remediation feedback is never lost and the
+    build loop never stalls.
+    """
+    if not bead_id:
+        return False
+    try:
+        from . import beads
+
+        beads.append_notes(bead_id, block)
+        return True
+    except Exception as exc:  # noqa: BLE001 — never crash the build loop.
+        emit_debug(f"[bead_factory] remediation append failed: {exc!r}")
+        return False
+
+
 def _refresh_build_prompts(
     *, frozen_implementor: str, frozen_inspector: str
 ) -> tuple[str, str]:
@@ -359,13 +399,34 @@ async def on_interactive_turn_end(
         state.stop()
         return None
 
-    state.get_state().remediation_notes = notes
     display_inspector(
         f"BUILD INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
         final=True,
     )
+
+    # bead-factory-t4c: APPEND the remediation block to the ACTIVE bead's
+    # notes field FIRST, then re-render the continuation so 2mb's live
+    # re-fetch picks up the just-appended notes. The bead becomes the
+    # single source of remediation feedback (consistent with 462's
+    # anti-duplication) — no inline concat on the happy path.
+    block = _delimited_remediation_block(loop_num, notes)
+    bead_id = state.get_state().bead_id
+    if _append_remediation_to_bead(bead_id, block):
+        # Re-render the implementor continuation from the LIVE bead, which
+        # now carries the appended block (and refresh the pinned contract).
+        build_prompt, _ = _refresh_build_prompts(
+            frozen_implementor=build_prompt,
+            frozen_inspector=inspector_build,
+        )
+        continuation_prompt = build_prompt
+    else:
+        # SOFT-FAIL: the append didn't land (no bead id / bd error), so fall
+        # back to inlining the notes for THIS iteration — remediation
+        # feedback must never be lost and the loop must never stall.
+        continuation_prompt = f"{build_prompt}\n\nInspector remediation notes:\n{notes}"
+
     return {
-        "prompt": f"{build_prompt}\n\nInspector remediation notes:\n{notes}",
+        "prompt": continuation_prompt,
         "clear_context": True,
         "delay": 0.5,
         "reason": "build",

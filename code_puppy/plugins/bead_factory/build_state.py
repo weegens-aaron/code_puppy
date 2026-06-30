@@ -48,7 +48,6 @@ class BuildState:
     bead_id: str | None = None
     recovery: bool = False
     loop_count: int = 0
-    remediation_notes: str | None = None
 
     def start(
         self,
@@ -68,7 +67,6 @@ class BuildState:
         self.bead_id = bead_id
         self.recovery = recovery
         self.loop_count = 0
-        self.remediation_notes = None
 
     def stop(self) -> None:
         self.active = False
@@ -77,7 +75,6 @@ class BuildState:
         self.bead_id = None
         self.recovery = False
         self.loop_count = 0
-        self.remediation_notes = None
 
     def increment(self) -> int:
         self.loop_count += 1
