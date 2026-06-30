@@ -28,6 +28,7 @@ from code_puppy.messaging.bus import emit_debug
 from . import build_state as state
 from . import state as chain_state
 from .banner import display_inspector
+from .build_result import StopReason
 from .inspector import BuildInspection, inspect_build
 from .inspector_config import (
     InspectorConfig,
@@ -332,6 +333,47 @@ async def _run_build_inspectors(
 
 
 # ---------------------------------------------------------------------------
+# Terminal-result capture (fail-soft side channel)
+# ---------------------------------------------------------------------------
+
+
+def _capture_build_result(
+    stop_reason: StopReason,
+    *,
+    verdicts: list[BuildInspection] | None = None,
+    loop_count: int = 0,
+) -> None:
+    """Build a :class:`BuildResult` and stash it via the consume-once sink.
+
+    bead-factory-60e: every terminal exit of :func:`on_interactive_turn_end`
+    (and :func:`on_interactive_turn_cancel`) records the just-computed
+    verdicts/tally/feedback so a downstream consumer (the chain driver's close
+    boundary; a future headless ``--bead-factory`` mode) can read the outcome
+    of the build loop. The turn-hook return value is already overloaded as the
+    retry/stop bit flag, so this rides the dedicated side channel chosen in
+    ADR 0002 / bead-factory-1r6 (``build_result.set_last``).
+
+    FAIL-SOFT BY CONTRACT: a capture hiccup must never crash the loop or change
+    control flow. Any exception is swallowed (logged at debug) so the loop
+    still stops/returns exactly as it did before this capture existed. The
+    ``bead_id`` is read live from build-state, so callers must capture BEFORE
+    ``state.stop()`` (which clears it) while the id still matters.
+    """
+    try:
+        from . import build_result as build_result_sink
+
+        result = build_result_sink.build_result(
+            list(verdicts) if verdicts else [],
+            stop_reason,
+            loop_count=loop_count,
+            bead_id=state.get_state().bead_id,
+        )
+        build_result_sink.set_last(result)
+    except Exception as exc:  # noqa: BLE001 — capture must never break the loop.
+        emit_debug(f"[bead_factory] build-result capture failed: {exc!r}")
+
+
+# ---------------------------------------------------------------------------
 # Turn-end / turn-cancel drivers (power the build loop)
 # ---------------------------------------------------------------------------
 
@@ -348,6 +390,9 @@ async def on_interactive_turn_end(
     del prompt, success
     build_prompt = state.get_prompt()
     if not build_prompt:
+        # No active build prompt -- record a defensive NO_PROMPT result before
+        # the early-return so headless consumers see why the loop didn't run.
+        _capture_build_result(StopReason.NO_PROMPT, loop_count=0)
         state.stop()
         return None
 
@@ -369,7 +414,7 @@ async def on_interactive_turn_end(
 
     loop_num = state.increment()
     try:
-        complete, notes, _verdicts = await _run_build_inspectors(
+        complete, notes, verdicts = await _run_build_inspectors(
             agent=agent,
             build=inspector_build,
             result=result,
@@ -379,18 +424,27 @@ async def on_interactive_turn_end(
         # Belt-and-suspenders: _run_build_inspectors already swallows these
         # but we never want a stray Ctrl+C to escape the plugin and
         # take down the whole REPL.
+        # No verdicts survived the cancellation -- record a CANCELLED result
+        # with an empty tally before stopping.
+        _capture_build_result(StopReason.CANCELLED, loop_count=loop_num)
         display_inspector("Build loop cancelled (Ctrl+C).")
         state.stop()
         return None
     if complete:
         # Per-inspector verdicts were already shown by _run_build_inspectors
         # -- no need to re-dump the notes block here.
+        _capture_build_result(
+            StopReason.COMPLETE, verdicts=verdicts, loop_count=loop_num
+        )
         display_inspector("BUILD COMPLETE!", final=True)
         state.stop()
         return None
 
     max_iters = get_build_max_iterations()
     if loop_num >= max_iters:
+        _capture_build_result(
+            StopReason.MAX_ITERATIONS, verdicts=verdicts, loop_count=loop_num
+        )
         display_inspector(
             f"BUILD STOPPED — Hit max iterations ({max_iters}). "
             f"Raise the cap with /set bf_build_max_iterations=<int>.",
@@ -436,5 +490,11 @@ async def on_interactive_turn_end(
 def on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> None:
     del prompt
     if state.is_active():
+        # Capture a CANCELLED result with the loop count reached so far,
+        # BEFORE state.stop() clears it. No verdicts are available here -- the
+        # turn was cancelled outside the inspector phase.
+        _capture_build_result(
+            StopReason.CANCELLED, loop_count=state.get_state().loop_count
+        )
         state.stop()
         emit_warning(f"Build loop stopped due to {reason}")
