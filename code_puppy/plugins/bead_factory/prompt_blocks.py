@@ -367,6 +367,43 @@ def _format_design_block(bead: dict[str, Any]) -> str:
     return f"{body}\n\n"
 
 
+def _format_notes_block(bead: dict[str, Any]) -> str:
+    """Return a ``## Notes`` prompt section, or ``""`` when absent.
+
+    ``notes`` is bd's free-form running-commentary field — the home for
+    inspection remediation feedback (appended via ``bd update
+    --append-notes``; see the rework contract) and any other durable
+    breadcrumbs left on the bead. It is present on the ``bd ready`` /
+    ``bd show`` JSON record bead-factory already hands the formatters,
+    but historically went unrendered, so a freshly-spawned implementor
+    never saw the very feedback meant to steer its next attempt.
+
+    Contract (mirrors :func:`_format_design_block`):
+
+    * Non-empty ``notes`` → a block beginning with the literal ``## Notes``
+      heading, then the notes text, then a trailing blank line so it
+      slots between prompt sections.
+    * Missing / empty / whitespace-only / non-string → ``""`` (prompt
+      byte-for-byte unchanged).
+    * If the stored value already leads with a ``Notes`` heading we don't
+      double it up — the value is emitted as-is.
+
+    Pure function, trivially testable.
+    """
+    raw = bead.get("notes", "")
+    if not isinstance(raw, str):
+        return ""
+    notes = raw.strip()
+    if not notes:
+        return ""
+    heading = "## Notes"
+    if notes.lstrip("# ").lower().startswith("notes"):
+        body = notes
+    else:
+        body = f"{heading}\n{notes}"
+    return f"{body}\n\n"
+
+
 def _format_acceptance_criteria_block(bead: dict[str, Any]) -> str:
     """Return a ``## Acceptance Criteria`` prompt section, or ``""`` if absent.
 

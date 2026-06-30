@@ -23,11 +23,13 @@ from .prompt_blocks import (
     _format_labels_line,
     _format_lint_warnings_block,
     _format_memory_digest_block,
+    _format_notes_block,
     _format_related_context_block,
 )
 
 __all__ = [
     "format_bead_as_build",
+    "format_bead_content",
     "is_triaged_bug",
     "TRIAGE_MARKER",
 ]
@@ -223,6 +225,87 @@ def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
     return TRIAGE_MARKER in description
 
 
+def _compose_metadata(bead: dict[str, Any]) -> str:
+    """Render the bead's ``Issue metadata`` body (sans the heading line).
+
+    Pulls the bead's *own* identity fields — type, priority, parent epic
+    and labels — into the ``- key: value`` lines both
+    :func:`format_bead_as_build` and :func:`format_bead_content` share.
+    Extracted so the two renderers can't drift on metadata shape. DRY.
+
+    The parent-epic lines come from :func:`_format_epic_metadata_lines`,
+    whose soft-failing ``bd show`` fetch is the only impurity here; type,
+    priority and labels are read straight off the bead dict.
+    """
+    issue_type = str(bead.get("issue_type", "task"))
+    priority = bead.get("priority", "?")
+    metadata_lines = [
+        f"- Type: {issue_type}",
+        f"- Priority: P{priority}",
+    ]
+    metadata_lines.extend(_format_epic_metadata_lines(bead))
+    metadata_lines.extend(_format_labels_line(bead))
+    return "\n".join(metadata_lines)
+
+
+def format_bead_content(bead: dict[str, Any]) -> str:
+    """Render ONLY the bead's own fields, with no chain boilerplate.
+
+    Where :func:`format_bead_as_build` wraps the bead in chain
+    scaffolding — the project-wide persistent-memories digest, the
+    template-lint contract, the done-checklist, the bug-discovery
+    protocol and the recovery/triage preambles — this renderer emits
+    *just the content of the bead itself*: its id/title, description,
+    metadata (type / priority / parent epic / labels), design rationale,
+    acceptance criteria, notes, and the non-gating related-context edges.
+
+    Motivation (epic bead-factory-cri): the bead content is pinned into
+    the compaction-protected system prompt (bead-factory-5wv), which must
+    carry the contract the agent is graded against — and *nothing else*,
+    so the whole-project boilerplate isn't duplicated into every
+    protected copy (bead-factory-462). It composes the same per-block
+    builders :func:`format_bead_as_build` uses, so the two stay in
+    lockstep on field rendering; only the surrounding scaffolding differs.
+
+    Block order mirrors the build prompt — design → acceptance → notes →
+    related context — and each block soft-defaults to ``""`` when its
+    field is absent, so a bare bead renders just the id/title +
+    description + metadata skeleton. The result is right-stripped to a
+    single trailing newline so it embeds cleanly under a wrapping header.
+
+    Pure-ish: the only impurity is the soft-failing epic-context fetch
+    inside :func:`_format_epic_metadata_lines` (via
+    :func:`_compose_metadata`). Notably it does NOT shell out for the
+    memory digest or ``bd lint`` — those are scaffolding, not bead
+    content.
+    """
+    bead_id = str(bead.get("id", "<unknown>"))
+    title = str(bead.get("title", "")).strip() or "(no title)"
+    description = str(bead.get("description", "")).strip() or "(no description)"
+
+    metadata = _compose_metadata(bead)
+
+    design_block = _format_design_block(bead)
+    acceptance_block = _format_acceptance_criteria_block(bead)
+    notes_block = _format_notes_block(bead)
+    related_block = _format_related_context_block(bead)
+
+    body = (
+        f"Complete beads issue {bead_id}: {title}\n"
+        f"\n"
+        f"{description}\n"
+        f"\n"
+        f"Issue metadata:\n"
+        f"{metadata}\n"
+        f"\n"
+        f"{design_block}"
+        f"{acceptance_block}"
+        f"{notes_block}"
+        f"{related_block}"
+    )
+    return body.rstrip() + "\n"
+
+
 def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str:
     """Turn a bd-ready JSON record into a build prompt for the build loop.
 
@@ -299,16 +382,8 @@ def format_bead_as_build(bead: dict[str, Any], *, recovery: bool = False) -> str
     bead_id = str(bead.get("id", "<unknown>"))
     title = str(bead.get("title", "")).strip() or "(no title)"
     description = str(bead.get("description", "")).strip() or "(no description)"
-    issue_type = str(bead.get("issue_type", "task"))
-    priority = bead.get("priority", "?")
 
-    metadata_lines = [
-        f"- Type: {issue_type}",
-        f"- Priority: P{priority}",
-    ]
-    metadata_lines.extend(_format_epic_metadata_lines(bead))
-    metadata_lines.extend(_format_labels_line(bead))
-    metadata = "\n".join(metadata_lines)
+    metadata = _compose_metadata(bead)
 
     # Render the bead's own design rationale + acceptance_criteria (both
     # already on the bd ready dict) so the agent — and the LLM inspectors —
