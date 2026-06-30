@@ -23,14 +23,18 @@ from code_puppy.config import get_value
 from code_puppy.messaging import (
     emit_warning,
 )
+from code_puppy.messaging.bus import emit_debug
 
 from . import build_state as state
+from . import state as chain_state
 from .banner import display_inspector
 from .inspector import BuildInspection, inspect_build
 from .inspector_config import (
     InspectorConfig,
     get_enabled_inspectors_or_default,
 )
+from .prompt import build_prompts_for_arming
+from .system_prompt import is_pin_active
 
 # Default cap on build-loop iterations. Override per-user with:
 #   /set bf_build_max_iterations=<int>
@@ -98,6 +102,52 @@ def _format_remediation_block(verdicts: list[BuildInspection]) -> str:
                 lines.append(f"  {note_line}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+def _refresh_build_prompts(
+    *, frozen_implementor: str, frozen_inspector: str
+) -> tuple[str, str]:
+    """Re-render the (implementor, inspector) prompts from the LIVE bead.
+
+    bead-factory-2mb: ``build_state.prompt`` / ``inspector_prompt`` are frozen
+    at claim time, so notes/edits appended to the bead DURING the build loop
+    (inspection rework feedback, mid-run field edits, bug-discovery notes)
+    never reach the inspectors — they grade stale context. Here we re-fetch
+    the live bead via ``bd show <bead_id>`` and re-render through the
+    notes-aware formatter (:func:`build_prompts_for_arming`), so BOTH the
+    inspectors and the agent's next retry iteration see current state.
+
+    As a side effect we refresh the compaction-protected pin
+    (``ChainState.current_bead``, read fresh each turn by
+    ``system_prompt.on_load_prompt``) so the implementor's *next* retry turn —
+    whose user-message build prompt is slimmed to scaffolding-only while the
+    pin is active — is graded against the live contract too, not the frozen
+    one.
+
+    Soft-fails to the frozen claim-time snapshot on ANY error (no bead id,
+    bd missing/timeout/non-zero, empty payload, render hiccup): a stale
+    prompt is strictly better than a crashed build loop.
+    """
+    bead_id = state.get_state().bead_id
+    if not bead_id:
+        return frozen_implementor, frozen_inspector
+    try:
+        from . import beads
+
+        live_bead = beads.show(bead_id)
+        if not live_bead:
+            return frozen_implementor, frozen_inspector
+        # Refresh the pinned contract so the NEXT retry turn's system prompt
+        # carries the live bead (the pin reads current_bead fresh each turn).
+        chain_state.get_state().current_bead = live_bead
+        return build_prompts_for_arming(
+            live_bead,
+            recovery=state.get_state().recovery,
+            inject_content=is_pin_active(),
+        )
+    except Exception as exc:  # noqa: BLE001 — never crash the build loop.
+        emit_debug(f"[bead_factory] live bead re-fetch failed: {exc!r}")
+        return frozen_implementor, frozen_inspector
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +315,17 @@ async def on_interactive_turn_end(
     # it gets the FULL content+scaffolding copy (bead-factory-462). The
     # implementor continuation below re-sends the (possibly slimmed) copy,
     # since its bead content rides the pinned system prompt.
-    inspector_build = state.get_inspector_prompt() or build_prompt
+    inspector_frozen = state.get_inspector_prompt() or build_prompt
+
+    # bead-factory-2mb: re-fetch the LIVE bead so notes/edits appended during
+    # this build loop (inspection rework feedback, mid-run edits,
+    # bug-discovery notes) reach the inspectors AND the next retry's pinned
+    # contract — not the frozen claim-time snapshot. Soft-fails to the frozen
+    # copies on any bd error.
+    build_prompt, inspector_build = _refresh_build_prompts(
+        frozen_implementor=build_prompt,
+        frozen_inspector=inspector_frozen,
+    )
 
     loop_num = state.increment()
     try:

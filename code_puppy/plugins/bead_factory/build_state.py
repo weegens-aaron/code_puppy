@@ -27,15 +27,37 @@ class BuildState:
       inspector is a raw pydantic_ai agent with no system-prompt injection,
       so it must carry the bead's content inline. Defaults to ``prompt``
       when not split (non-injected paths render the full prompt for both).
+
+    It also carries the active bead's *identity* (bead-factory-2mb):
+
+    * ``bead_id`` — the id of the bead currently being built. The build loop
+      re-fetches the live bead via ``bd show <bead_id>`` at inspection time
+      so notes/edits appended DURING the build loop (rework feedback,
+      mid-run field edits, bug-discovery notes) reach the inspectors and the
+      next retry's pinned contract instead of grading the frozen claim-time
+      snapshot. ``None`` disables the re-fetch (frozen-snapshot behaviour).
+    * ``recovery`` — the claim-time recovery flag, stored so the live
+      re-render reproduces the same mode preamble the claim-time render
+      used (recovery vs triage vs ordinary). Without it a re-fetch would
+      silently drop the recovery preamble on every retry.
     """
 
     active: bool = False
     prompt: str | None = None
     inspector_prompt: str | None = None
+    bead_id: str | None = None
+    recovery: bool = False
     loop_count: int = 0
     remediation_notes: str | None = None
 
-    def start(self, prompt: str, *, inspector_prompt: str | None = None) -> None:
+    def start(
+        self,
+        prompt: str,
+        *,
+        inspector_prompt: str | None = None,
+        bead_id: str | None = None,
+        recovery: bool = False,
+    ) -> None:
         self.active = True
         self.prompt = prompt
         # Inspector copy falls back to the implementor prompt so callers that
@@ -43,6 +65,8 @@ class BuildState:
         self.inspector_prompt = (
             inspector_prompt if inspector_prompt is not None else prompt
         )
+        self.bead_id = bead_id
+        self.recovery = recovery
         self.loop_count = 0
         self.remediation_notes = None
 
@@ -50,6 +74,8 @@ class BuildState:
         self.active = False
         self.prompt = None
         self.inspector_prompt = None
+        self.bead_id = None
+        self.recovery = False
         self.loop_count = 0
         self.remediation_notes = None
 
@@ -82,8 +108,19 @@ def get_inspector_prompt() -> str | None:
     return _STATE.inspector_prompt if _STATE.active else None
 
 
-def start(prompt: str, *, inspector_prompt: str | None = None) -> None:
-    _STATE.start(prompt, inspector_prompt=inspector_prompt)
+def start(
+    prompt: str,
+    *,
+    inspector_prompt: str | None = None,
+    bead_id: str | None = None,
+    recovery: bool = False,
+) -> None:
+    _STATE.start(
+        prompt,
+        inspector_prompt=inspector_prompt,
+        bead_id=bead_id,
+        recovery=recovery,
+    )
 
 
 def stop() -> None:

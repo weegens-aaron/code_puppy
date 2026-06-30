@@ -554,8 +554,16 @@ def activate_next_bead(
         bead, recovery=recovery, inject_content=is_pin_active()
     )
 
-    # Hand the wheel to the build loop for the next N turns.
-    build_state.start(build_prompt, inspector_prompt=inspector_prompt)
+    # Hand the wheel to the build loop for the next N turns. Thread the bead
+    # identity + recovery flag so the build loop can re-fetch the LIVE bead
+    # at inspection time (bead-factory-2mb) and grade against post-claim
+    # notes/edits rather than this frozen snapshot.
+    build_state.start(
+        build_prompt,
+        inspector_prompt=inspector_prompt,
+        bead_id=bead_id,
+        recovery=recovery,
+    )
 
     action = "recovered" if recovery else "claimed"
     emit_info(f"🔗 bead-factory {action} {bead_id} — {bead.get('title', '')}")

@@ -280,7 +280,15 @@ def handle_bead_factory_command(command: str) -> str | bool:
     build_prompt, inspector_prompt = build_prompts_for_arming(
         bead, recovery=recovery, inject_content=is_pin_active()
     )
-    build_state.start(build_prompt, inspector_prompt=inspector_prompt)
+    # Thread the bead identity + recovery flag through so the build loop can
+    # re-fetch the LIVE bead at inspection time (bead-factory-2mb) and grade
+    # against post-claim notes/edits rather than this frozen snapshot.
+    build_state.start(
+        build_prompt,
+        inspector_prompt=inspector_prompt,
+        bead_id=bead_id,
+        recovery=recovery,
+    )
 
     emit_success("🔗 BEAD-FACTORY ENGAGED!")
     emit_info(f"First bead: {bead_id} — {bead.get('title', '')}")
