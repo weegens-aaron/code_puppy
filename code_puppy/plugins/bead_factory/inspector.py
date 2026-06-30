@@ -85,6 +85,60 @@ def _format_message(message: Any, index: int) -> str:
     return f"[{index}] {message.__class__.__name__}:\n{text or '(empty message)'}"
 
 
+def _latest_instructions(messages: list[Any]) -> str | None:
+    """Most recent non-empty message-level ``instructions``, or ``None``.
+
+    bead-factory-c9n: the active bead's contract is pinned into the
+    implementor's SYSTEM PROMPT (bead-factory-5wv). pydantic_ai delivers the
+    system prompt as the message-level ``instructions`` field on a
+    ``ModelRequest`` -- it is NOT a message *part*. Because
+    :func:`_format_message` only walks ``.parts``, the pinned contract would
+    otherwise be invisible to an inspector reading the implementor history
+    via ``inspect_build_history`` -- and the user-message build prompt is
+    slimmed to scaffolding-only while the pin is active (bead-factory-462),
+    so the bead content isn't in the parts either. Surfacing the latest
+    instructions is what guarantees the protected bead content is ALWAYS
+    present in what the inspector reads here, even after the implementor's
+    history has been compacted/truncated.
+
+    We take the *latest* non-empty block: pydantic_ai re-attaches the
+    (freshly re-rendered) instructions to the newest request each turn, so
+    the last one is the current contract; walking back also tolerates
+    histories where older requests carry stale or absent instructions.
+    """
+    for message in reversed(messages):
+        instructions = getattr(message, "instructions", None)
+        if instructions:
+            return str(instructions)
+    return None
+
+
+def _format_protected_contract(
+    instructions: str | None, *, max_chars: int
+) -> str | None:
+    """Render the pinned system instructions as a labelled, budgeted block."""
+    if not instructions:
+        return None
+    text = instructions
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n…(instructions truncated)…"
+    return "[protected task contract — pinned system instructions]\n" + text
+
+
+def _message_search_text(message: Any) -> str:
+    """Lowercased searchable text for a message: its parts AND instructions.
+
+    Including ``instructions`` (the pinned contract) means an inspector can
+    query for a term that lives only in the protected bead content and still
+    select the message that carries it (bead-factory-c9n).
+    """
+    parts_text = "\n".join(
+        stringify_part(part) for part in getattr(message, "parts", [])
+    )
+    instructions = getattr(message, "instructions", None) or ""
+    return f"{parts_text}\n{instructions}".lower()
+
+
 def _format_history_window(
     messages: list[Any],
     *,
@@ -95,16 +149,23 @@ def _format_history_window(
     if not messages:
         return "(no implementor message history captured)"
 
+    # bead-factory-c9n: ALWAYS surface the pinned contract (the system-prompt
+    # instructions) so the protected bead content is present in what the
+    # inspector reads -- even when the user-message build prompt was slimmed
+    # to scaffolding-only (bead-factory-462) and even when older history was
+    # compacted away. This is independent of the query: the contract is the
+    # spec the inspector grades against, so it is never filtered out.
+    contract = _format_protected_contract(
+        _latest_instructions(messages), max_chars=max_chars
+    )
+
     normalized_query = (query or "").strip().lower()
     indexed = list(enumerate(messages))
     if normalized_query:
         indexed = [
             (idx, msg)
             for idx, msg in indexed
-            if normalized_query
-            in "\n".join(
-                stringify_part(part) for part in getattr(msg, "parts", [])
-            ).lower()
+            if normalized_query in _message_search_text(msg)
         ]
 
     selected = indexed[-max(1, min(limit, 100)) :]
@@ -120,9 +181,13 @@ def _format_history_window(
         chunks.append(block)
         total += len(block)
 
-    if not chunks:
-        return "(no matching implementor history messages)"
-    return "\n\n---\n\n".join(chunks)
+    window = (
+        "\n\n---\n\n".join(chunks)
+        if chunks
+        else "(no matching implementor history messages)"
+    )
+    sections = [section for section in (contract, window) if section]
+    return "\n\n===\n\n".join(sections)
 
 
 def _register_build_history_tool(inspector_agent: Agent, messages: list[Any]) -> None:
