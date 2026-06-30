@@ -26,9 +26,11 @@ The bottom of the file is a tiny *consume-once results sink* singleton
 (``set_last`` / ``take_last`` / ``peek_last`` / ``clear``). It is the side
 channel chosen in the ADR for ferrying a :class:`BuildResult` from the build
 loop's terminal turn to the chain driver's close boundary (the turn-hook return
-value is already overloaded as the retry/stop bit flag). No call sites are
-wired yet -- the build loop writing ``set_last`` and the chain driver reading
-``take_last`` land in the downstream slices.
+value is already overloaded as the retry/stop bit flag). Both call sites are
+now wired: the build loop writes ``set_last`` at every terminal exit
+(bead-factory-60e) and the chain driver reads ``take_last`` at its close
+boundary (bead-factory-0sc, read-only surfacing only — it does not yet act on
+the result).
 """
 
 from __future__ import annotations
@@ -143,8 +145,9 @@ def build_result(
 # (``take_last`` pops + clears) kills cross-bead staleness by design. Fail-soft
 # by construction: an empty sink yields ``None`` and leaves consumers unchanged.
 #
-# No call sites are wired yet -- the build-loop ``set_last`` write and the
-# chain-driver ``take_last`` read land in downstream slices.
+# Both call sites are wired: the build loop writes ``set_last`` at every
+# terminal exit (bead-factory-60e) and the chain driver reads ``take_last`` at
+# its close boundary (bead-factory-0sc).
 
 _LAST: BuildResult | None = None
 

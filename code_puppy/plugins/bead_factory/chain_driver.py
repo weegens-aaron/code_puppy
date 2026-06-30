@@ -41,6 +41,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
+from code_puppy.messaging.bus import emit_debug
 
 # ---------------------------------------------------------------------------
 # Build loop prerequisite (in-package)
@@ -51,6 +52,7 @@ from code_puppy.messaging import (
 # :mod:`build_loop` and its state in :mod:`build_state`; both ship inside this
 # package, so we import them directly.
 from . import build_loop
+from . import build_result
 from . import build_state
 from . import state
 from .beads import BeadsError, is_excluded_type
@@ -300,6 +302,45 @@ def handle_bead_factory_command(command: str) -> str | bool:
 
 
 # ---------------------------------------------------------------------------
+# Terminal build-result surfacing (read-only, fail-soft)
+# ---------------------------------------------------------------------------
+
+
+def _consume_terminal_build_result() -> "build_result.BuildResult | None":
+    """Read the build loop's terminal-turn result at the close boundary.
+
+    bead-factory-0sc: the build loop stashes a :class:`~.build_result.BuildResult`
+    via the consume-once sink at every terminal exit (bead-factory-60e). This
+    surfaces that result to the chain driver at the moment the build loop has
+    stopped and just before :func:`close_current_bead_success`, so the per-bead
+    outcome (abstain count + remediation feedback) is available at the close
+    boundary for any future consumer.
+
+    ``take_last`` is the ADR-chosen transport (consume-once: pops + clears), so
+    a stale result can never bleed into the *next* bead's close. This is
+    **read-only surfacing only** — the chain driver does NOT act on the result
+    yet, so close/next control flow is entirely unchanged.
+
+    FAIL-SOFT BY CONTRACT: a missing/None result degrades to ``None`` and a
+    capture hiccup is swallowed (logged at debug) — the chain must close the
+    bead exactly as it did before this read existed.
+    """
+    try:
+        result = build_result.take_last()
+    except Exception as exc:  # noqa: BLE001 — surfacing must never break the chain.
+        emit_debug(f"[bead_factory] build-result read failed: {exc!r}")
+        return None
+    if result is not None:
+        emit_debug(
+            "[bead_factory] terminal build result at close boundary: "
+            f"bead={result.bead_id} stop_reason={result.stop_reason} "
+            f"passed={result.passed} failed={result.failed} "
+            f"abstained={result.abstained} loops={result.loop_count}"
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # interactive_turn_end / interactive_turn_cancel hooks
 # (registered lazily by _ensure_hooks_registered)
 # ---------------------------------------------------------------------------
@@ -337,6 +378,19 @@ async def _on_interactive_turn_end(
     # but interactive_turn_cancel runs for cancellation and would have
     # already stopped us; so reaching this branch with state.active
     # still True implies success.
+    #
+    # bead-factory-0sc: surface the build loop's terminal-turn result at the
+    # close boundary. The build hook (which ran ahead of us this turn) stashed a
+    # BuildResult via the consume-once sink right before it stopped; read it now,
+    # while it's fresh and bound to the bead we're about to close. This is
+    # READ-ONLY for now — we deliberately make NO control-flow decisions from it
+    # (no early returns, no close/next branching). It exists so a future
+    # consumer (e.g. headless --bead-factory mode, bead-factory-ogz) has the
+    # per-bead outcome at hand. Consuming it here also drains the sink before the
+    # next bead arms, so no stale verdict can leak across the close boundary.
+    _terminal_result = _consume_terminal_build_result()
+    del _terminal_result  # read-only surfacing — no consumer acts on it yet.
+
     # close_current_bead_success() shells out to `bd`
     # (bd close / bd show / bd update) synchronously. Running it inline
     # here would block code_puppy's interactive event loop for the
