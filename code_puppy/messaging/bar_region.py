@@ -18,10 +18,12 @@ Resize story (one unified path):
 
 Scroll strategy on establish: when the transcript cursor is knowable
 (Windows console query — ``bar_rendering.default_get_cursor_pos``), only
-the content rows the reserved band would eat are scrolled away and the
-cursor is re-parked at the END of the content, keeping transcript and
-bar adjacent. When it isn't (POSIX, injected test streams), fall back to
-blindly scrolling by the full reserved count.
+the content rows the reserved band would eat are scrolled away, the
+cursor is re-parked at the END of the content, and on re-establishes the
+transcript is bottom-anchored against the bar (the "resize hug" — see
+``_establish``) so a later shrink can't strand it in scrollback. When it
+isn't (POSIX, injected test streams), fall back to blindly scrolling by
+the full reserved count.
 """
 
 from __future__ import annotations
@@ -209,8 +211,7 @@ class RegionLifecycleMixin:
             # ``default_get_cursor_pos``): scroll ONLY the content rows
             # the reserved band would otherwise eat, and park the cursor
             # back at the END of the content so the next print continues
-            # right there — no artificial gap between transcript and
-            # bar, and repeated establishes are idempotent.
+            # right there — never a blind full-reserved scroll.
             row = min(pos[0], rows)
             col = max(1, min(pos[1], cols))
             overshoot = row - top
@@ -219,10 +220,25 @@ class RegionLifecycleMixin:
                 # scrollback (CSI S would discard those rows instead).
                 parts.append(f"\x1b[{rows};1H" + "\n" * overshoot)
                 row = top
-            parts += [
-                f"\x1b[1;{top}r",  # DECSTBM homes the cursor…
-                f"\x1b[{row};{col}H",  # …so re-park at the content end.
-            ]
+            parts.append(f"\x1b[1;{top}r")  # DECSTBM homes the cursor
+            if old_reserved and old_rows > 0 and row < top:
+                # RESIZE HUG: on a re-establish, bottom-anchor the
+                # transcript against the bar. Leaving it top-anchored
+                # with a blank band under it is a trap: a later shrink
+                # (maximize -> restore) keeps the BOTTOM rows of the
+                # active area — the bar and the blank band — and pushes
+                # the transcript into scrollback where no escape can
+                # reach it (the 'window full of nothing' artifact). SD
+                # inserts blanks at the region top and discards the
+                # blank gap rows at the region bottom — the transcript
+                # itself is never lost, so drag-resizes can fire this
+                # any number of times. First establishes skip the hug:
+                # a fresh banner stays top-anchored, and the gap only
+                # ever sits ABOVE content — visible exactly when there
+                # isn't enough content to fill the screen.
+                parts.append(f"\x1b[{top - row}T")
+                row = top
+            parts.append(f"\x1b[{row};{col}H")  # re-park at the content end
         if not self._cursor_hidden:
             # DECTCEM hide: the prompt row renders a pseudo-cursor; the
             # hardware cursor must not blink inside the scroll region.

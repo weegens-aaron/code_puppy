@@ -19,9 +19,12 @@ resizes without repaint traffic.
 """
 
 import io
+import re
 
 from code_puppy.messaging.bar_rendering import RESET_REGION
 from code_puppy.messaging.bottom_bar import RESERVED_ROWS, BottomBar
+
+_SCROLL_DOWN = re.compile(r"\x1b\[\d+T")  # CSI Ps T (SD)
 
 
 class FakeTTY(io.StringIO):
@@ -82,9 +85,10 @@ def test_known_cursor_in_reserved_band_scrolls_only_overshoot():
     assert "\x1b[22;1H" in out
 
 
-def test_known_cursor_establish_is_scroll_idempotent():
-    # Re-establish with an unchanged in-region cursor must not scroll:
-    # this is what stops a drag-resize from marching the transcript away.
+def test_known_cursor_reestablish_never_newline_scrolls():
+    # Re-establish with an in-region cursor must never \n-scroll (that
+    # marched the transcript away on drag-resizes); the hug uses SD
+    # (CSI T), which shifts within the region and loses nothing.
     calls = []
 
     def provider():
@@ -97,9 +101,34 @@ def test_known_cursor_establish_is_scroll_idempotent():
     size.rows = 30
     bar.set_prompt_text("> ", "hi", 2)  # repaint notices the resize
     out = drain(tty)
-    assert "\n" not in out.replace("\x1b[1;28r", "")  # zero scroll anywhere
-    assert "\x1b[5;1H" in out  # still parked at the content end
+    assert "\n" not in out.replace("\x1b[1;28r", "")  # zero \n-scroll anywhere
     assert len(calls) == 2  # one query per establish
+
+
+def test_reestablish_hugs_transcript_against_bar():
+    # Maximize case: 24 -> 60 rows with content ending at (5, 1). The
+    # transcript must bottom-anchor against the bar (SD by the gap) so a
+    # later shrink keeps it visible instead of stranding it in
+    # scrollback ('window full of nothing' after maximize -> restore).
+    bar, tty, size = _bar(cursor=(5, 1))
+    bar.start()
+    drain(tty)
+    size.rows = 60
+    bar.poll_resize()
+    out = drain(tty)
+    top = 60 - bar._reserved
+    assert f"\x1b[{top - 5}T" in out  # SD by the gap…
+    assert f"\x1b[{top};1H" in out  # …and park at the region bottom
+
+
+def test_first_establish_keeps_content_top_anchored():
+    # Launch: the banner stays where it is — no hug, gap stays BELOW the
+    # content (visible only when content doesn't fill the screen).
+    bar, tty, _ = _bar(cursor=(5, 10))
+    bar.start()
+    out = drain(tty)
+    assert _SCROLL_DOWN.search(out) is None  # no SD on first establish
+    assert "\x1b[5;10H" in out
 
 
 def test_cursor_provider_failure_falls_back_to_blind_scroll():
