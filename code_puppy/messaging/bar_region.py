@@ -16,14 +16,20 @@ Resize story (one unified path):
 * POSIX additionally chains a SIGWINCH handler that merely invalidates
   the cached geometry (signal-safe: it never paints).
 
-Scroll strategy on establish: when the transcript cursor is knowable
-(Windows console query — ``bar_rendering.default_get_cursor_pos``), only
-the content rows the reserved band would eat are scrolled away, the
-cursor is re-parked at the END of the content, and on re-establishes the
-transcript is bottom-anchored against the bar (the "resize hug" — see
-``_establish``) so a later shrink can't strand it in scrollback. When it
-isn't (POSIX, injected test streams), fall back to blindly scrolling by
-the full reserved count.
+Placement strategy (the "floating bar"): when the transcript cursor is
+knowable (Windows console query — ``bar_rendering.default_get_cursor_pos``)
+the reserved band anchors DIRECTLY UNDER the content and descends as the
+transcript grows, docking at the true bottom once content fills the
+screen. Why: any blank band between content and a bar painted at the
+far bottom is a trap — a shrink (maximize -> restore) keeps the bottom
+rows of the active area and strands the transcript in scrollback, while
+scrolling the content down to close the gap (the earlier "resize hug")
+inserts blank bands that permanently fracture scrollback. With the band
+hugging the content from below, everything under it stays blank, and
+terminals trim trailing blanks on shrink — resizes keep the transcript
+visible AND contiguous. When the cursor isn't knowable (POSIX, injected
+test streams), fall back to the classic bottom-docked bar with blind
+scrolling by the full reserved count.
 """
 
 from __future__ import annotations
@@ -47,6 +53,13 @@ from .bar_rendering import (
 
 logger = logging.getLogger(__name__)
 
+#: Blank runway kept between the content end and the floating band, so
+#: bursts of output have room to print before the descent tick moves the
+#: band down (region-bottom scrolling while free rows sit below the bar
+#: would look broken). Small enough that a shrink losing ONLY runway
+#: rows to the trailing-blank trim never clips content.
+FLOAT_HEADROOM = 8
+
 
 class RegionLifecycleMixin:
     """Geometry polling + region establish/resize/teardown for ``BottomBar``."""
@@ -56,14 +69,24 @@ class RegionLifecycleMixin:
     # =========================================================================
 
     def _ensure_geometry(self) -> None:
-        """Re-establish the region if the terminal size changed.
+        """Re-establish on terminal resize OR when the bar must descend.
 
         Called lazily on every repaint — plus periodically from the
         key-listener idle tick via :meth:`poll_resize` (see below).
+        Descent: while the bar floats above the true bottom, content
+        reaching the region bottom means it needs room — re-establish
+        moves the band down (see ``_establish``'s anchor math). The
+        cursor query is a cheap kernel call and only fires while
+        actually floating (never on POSIX — no query there, no float).
         """
         cols, rows = self._safe_size()
         if (cols, rows) != (self._cols, self._rows):
             self._establish()
+            return
+        if self._region_up and 0 < self._anchor < rows:
+            pos = self._cursor_position()
+            if pos is not None and pos[0] >= self._anchor - self._reserved:
+                self._establish()
 
     def poll_resize(self) -> None:
         """Notice a terminal resize at IDLE (no repaint traffic).
@@ -163,39 +186,38 @@ class RegionLifecycleMixin:
                     self._modkeys_armed = False
                 self._write("".join(parts))
             self._region_up = False
+            self._anchor = 0
             return
-        top = rows - reserved
+        old_anchor = (
+            min(self._anchor, rows) if (self._region_up and self._anchor) else 0
+        )
         # Query BEFORE composing any writes — the erase pass below moves
-        # the cursor, and both scroll strategies key off where the
-        # transcript content actually ENDS.
+        # the cursor, and the anchor math keys off where the transcript
+        # content actually ENDS.
         pos = self._cursor_position()
         parts = []
-        if old_reserved and old_rows > 0:
-            # Re-establish after a resize: the old bar rows were painted
-            # at the PREVIOUS geometry and nothing repaints over them —
-            # without an explicit erase they linger as ghost duplicates
-            # ("multiples of UI elements") at their old positions while
-            # the fresh bar paints at the new bottom. Reset the region
-            # first so the erases can reach rows outside the incoming
-            # one, then blank the old reserved band (clamped to the new
-            # screen height). SAVE/RESTORE keeps the transcript cursor
-            # safe from the erase repositioning: without it the blind
-            # branch below scrolled by ``reserved`` from the LAST CLEARED
-            # row on every establish — a drag-resize fired dozens of
-            # those and marched the whole transcript out of the window.
-            parts.append(_RESET_REGION)
-            parts.append(_SAVE_CURSOR)
-            for row in range(
-                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
-            ):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-            parts.append(_RESTORE_CURSOR)
         if pos is None:
-            # Cursor unknowable (POSIX / injected streams): scroll
-            # blindly — newlines at the content cursor push the
-            # transcript up by ``reserved`` when it sits near the
-            # bottom, and may over-scroll when it doesn't (the price of
-            # not knowing). Cursor parks at the region bottom.
+            # Cursor unknowable (POSIX / injected streams): classic
+            # bottom-docked bar with a blind scroll — newlines at the
+            # content cursor push the transcript up by ``reserved`` when
+            # it sits near the bottom, and may over-scroll when it
+            # doesn't (the price of not knowing).
+            anchor = rows
+            top = anchor - reserved
+            if old_reserved and old_rows > 0:
+                # Erase the old band at its recorded position (clamped to
+                # the new height) so it can't linger as a ghost. SAVE/
+                # RESTORE keeps the transcript cursor safe from the erase
+                # repositioning: without it this branch scrolled by
+                # ``reserved`` from the LAST CLEARED row on every
+                # establish — a drag-resize fired dozens of those and
+                # marched the whole transcript out of the window.
+                band = old_anchor or old_rows
+                parts.append(_RESET_REGION)
+                parts.append(_SAVE_CURSOR)
+                for row in range(max(1, band - old_reserved + 1), min(band, rows) + 1):
+                    parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+                parts.append(_RESTORE_CURSOR)
             parts += [
                 # Push existing content up so the reserved rows start blank.
                 "\n" * reserved,
@@ -207,38 +229,53 @@ class RegionLifecycleMixin:
                 f"\x1b[{top};1H",
             ]
         else:
-            # Cursor known (Windows console query — see
-            # ``default_get_cursor_pos``): scroll ONLY the content rows
-            # the reserved band would otherwise eat, and park the cursor
-            # back at the END of the content so the next print continues
-            # right there — never a blind full-reserved scroll.
+            # Cursor known (Windows console query): FLOAT the band right
+            # under the content. The anchor (band's bottom row) never
+            # rises within a session and grows by ``reserved`` when the
+            # content has filled its region (the descent), docking at
+            # the true bottom for long transcripts. No blank band ever
+            # sits between content and bar, so shrinks can't strand the
+            # transcript (terminals trim trailing blanks) and nothing
+            # needs to scroll content around (no scrollback fractures).
             row = min(pos[0], rows)
             col = max(1, min(pos[1], cols))
+            desired = row + reserved + FLOAT_HEADROOM
+            if old_anchor and old_reserved:
+                # Never lift the band off rows it already owns — the
+                # anchor is monotonic within a session (only a smaller
+                # terminal forces it back up, via the min() below).
+                desired = max(desired, old_anchor)
+            anchor = min(rows, desired)
+            top = anchor - reserved
+            if old_reserved and old_rows > 0:
+                # Erase the old band. The float invariant keeps it a
+                # fixed distance under the content (runway + band), so
+                # erase RELATIVE TO THE QUERIED CURSOR — stored
+                # coordinates go stale when the terminal reveals
+                # scrollback on a grow; the cursor never does. The span
+                # also stretches to the recorded anchor for band
+                # shrinks; over-erased rows are runway blanks or get
+                # repainted below.
+                erase_to = min(
+                    rows,
+                    max(old_anchor, row + old_reserved + FLOAT_HEADROOM),
+                )
+                parts.append(_RESET_REGION)
+                parts.append(_SAVE_CURSOR)
+                for r in range(row + 1, erase_to + 1):
+                    parts.append(f"\x1b[{r};1H{_CLEAR_LINE}")
+                parts.append(_RESTORE_CURSOR)
             overshoot = row - top
             if overshoot > 0:
-                # Newlines at the true bottom scroll the overlap into
-                # scrollback (CSI S would discard those rows instead).
+                # Content taller than the docked region: newlines at the
+                # true bottom scroll the overlap into scrollback (CSI S
+                # would discard those rows instead).
                 parts.append(f"\x1b[{rows};1H" + "\n" * overshoot)
                 row = top
-            parts.append(f"\x1b[1;{top}r")  # DECSTBM homes the cursor
-            if old_reserved and old_rows > 0 and row < top:
-                # RESIZE HUG: on a re-establish, bottom-anchor the
-                # transcript against the bar. Leaving it top-anchored
-                # with a blank band under it is a trap: a later shrink
-                # (maximize -> restore) keeps the BOTTOM rows of the
-                # active area — the bar and the blank band — and pushes
-                # the transcript into scrollback where no escape can
-                # reach it (the 'window full of nothing' artifact). SD
-                # inserts blanks at the region top and discards the
-                # blank gap rows at the region bottom — the transcript
-                # itself is never lost, so drag-resizes can fire this
-                # any number of times. First establishes skip the hug:
-                # a fresh banner stays top-anchored, and the gap only
-                # ever sits ABOVE content — visible exactly when there
-                # isn't enough content to fill the screen.
-                parts.append(f"\x1b[{top - row}T")
-                row = top
-            parts.append(f"\x1b[{row};{col}H")  # re-park at the content end
+            parts += [
+                f"\x1b[1;{top}r",  # DECSTBM homes the cursor…
+                f"\x1b[{row};{col}H",  # …so re-park at the content end.
+            ]
         if not self._cursor_hidden:
             # DECTCEM hide: the prompt row renders a pseudo-cursor; the
             # hardware cursor must not blink inside the scroll region.
@@ -254,6 +291,7 @@ class RegionLifecycleMixin:
             self._modkeys_armed = True
         self._region_up = True
         self._reserved = reserved
+        self._anchor = anchor
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
 
@@ -284,17 +322,40 @@ class RegionLifecycleMixin:
             # handles the dormant transition.
             self._establish()
             return
+        old_anchor = min(self._anchor or rows, rows)
+        floating = old_anchor < rows
         parts = [_SAVE_CURSOR]
         delta_up = 0
-        if new_reserved > old_reserved:
-            # Blank the soon-to-be-reserved rows by scrolling content up.
-            delta_up = new_reserved - old_reserved
-            parts.append(f"\x1b[{delta_up}S")
+        if floating:
+            # Floating band: keep the region top FIXED (the band stays
+            # glued to the content) and move the band's BOTTOM edge —
+            # growth extends into the blank rows below (no scroll at
+            # all); shrink vacates the band's own bottom rows.
+            top = old_anchor - old_reserved
+            anchor = top + new_reserved
+            if anchor > rows:
+                # Ran out of blank rows below — scroll the region up for
+                # the remainder, exactly like the docked path.
+                delta_up = anchor - rows
+                parts.append(f"\x1b[{delta_up}S")
+                anchor = rows
+                top = anchor - new_reserved
+            elif new_reserved < old_reserved:
+                for row in range(anchor + 1, old_anchor + 1):
+                    parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
         else:
-            # Clear rows being returned to the scroll region.
-            for row in range(rows - old_reserved + 1, rows - new_reserved + 1):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        top = rows - new_reserved
+            # Docked band (classic): bottom edge stays at the screen
+            # bottom; the region's top edge gives/takes the rows.
+            anchor = rows
+            if new_reserved > old_reserved:
+                # Blank the soon-to-be-reserved rows by scrolling content up.
+                delta_up = new_reserved - old_reserved
+                parts.append(f"\x1b[{delta_up}S")
+            else:
+                # Clear rows being returned to the scroll region.
+                for row in range(rows - old_reserved + 1, rows - new_reserved + 1):
+                    parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+            top = rows - new_reserved
         parts.append(f"\x1b[1;{top}r")  # DECSTBM homes the cursor
         # Restore the transcript cursor (DECSTBM homed it). After a grow
         # the content scrolled up by ``delta_up``, so the cursor must
@@ -303,6 +364,7 @@ class RegionLifecycleMixin:
         if delta_up:
             parts.append(f"\x1b[{delta_up}A")
         self._reserved = new_reserved
+        self._anchor = anchor
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
 
@@ -316,10 +378,15 @@ class RegionLifecycleMixin:
         """
         rows = self._safe_size()[1]
         reserved = self._reserved or self._total_reserved()
+        anchor = min(self._anchor or rows, rows)
+        band_top = max(1, anchor - reserved + 1)
         parts = [_RESET_REGION]
-        for row in range(max(1, rows - reserved + 1), rows + 1):
+        for row in range(band_top, anchor + 1):
             parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        parts.append(f"\x1b[{max(1, rows - reserved + 1)};1H")
+        # Park where the band was — right under the content when the
+        # band floats, so e.g. the shell prompt on exit lands adjacent
+        # to the transcript instead of at the bottom of a blank screen.
+        parts.append(f"\x1b[{band_top};1H")
         if self._cursor_hidden:
             # Give the hardware cursor back — every exit path (stop,
             # suspend-enter, dormant, emergency) funnels through here.
@@ -334,6 +401,7 @@ class RegionLifecycleMixin:
         self._write("".join(parts))
         self._region_up = False
         self._reserved = 0
+        self._anchor = 0
 
 
 __all__ = ["RegionLifecycleMixin"]

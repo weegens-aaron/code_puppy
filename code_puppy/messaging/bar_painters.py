@@ -139,7 +139,9 @@ class BarPainterMixin:
         the panel. ``status_row`` is always H — ``_status_seq`` checks
         visibility itself.
         """
-        rows = self._rows
+        # The band's bottom row: the screen bottom when docked, higher
+        # when the bar floats under short content (see bar_region).
+        rows = getattr(self, "_anchor", 0) or self._rows
         status_rows = 1 if self._status_visible() else 0
         popup_top = rows - status_rows - len(self._visible_popup_lines()) + 1
         prompt_top = popup_top - self._prompt_row_count()

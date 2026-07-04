@@ -107,6 +107,10 @@ class BottomBar(RegionLifecycleMixin, BarPainterMixin):
         self._suspend_depth = 0
         self._rows = 0
         self._cols = 0
+        # Bottom row of the reserved band. Docked = screen bottom; the
+        # cursor-aware path FLOATS it directly under the content (see
+        # bar_region's module docstring). 0 while no region is up.
+        self._anchor = 0
         self._status = ""
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')

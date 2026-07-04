@@ -863,7 +863,10 @@ def test_prompt_window_measured_in_cells(bar, tty):
 # =========================================================================
 
 
-def test_stop_clears_rows_of_current_size_after_resize(tty):
+def test_stop_clears_painted_band_rows_after_grow(tty):
+    # Terminal grew while suspended-ish: the band is still physically
+    # painted at the OLD bottom rows — teardown must clear those, not
+    # blank rows at the new bottom where nothing was ever painted.
     size = [(80, 24)]
     bar = BottomBar(stream=tty, get_size=lambda: size[0])
     bar.start()
@@ -871,8 +874,24 @@ def test_stop_clears_rows_of_current_size_after_resize(tty):
     drain(tty)
     bar.stop()
     out = written(tty)
-    for row in (29, 30):  # bottom rows of the CURRENT size
+    for row in (23, 24):  # rows the band actually occupies
         assert f"\x1b[{row};1H\x1b[2K" in out
+
+
+def test_stop_clamps_band_clear_after_shrink(tty):
+    # Terminal shrank: the recorded band rows no longer exist — the
+    # clear must clamp to the new height instead of addressing rows
+    # beyond the screen.
+    size = [(80, 24)]
+    bar = BottomBar(stream=tty, get_size=lambda: size[0])
+    bar.start()
+    size[0] = (80, 20)
+    drain(tty)
+    bar.stop()
+    out = written(tty)
+    for row in (19, 20):  # clamped to the CURRENT bottom
+        assert f"\x1b[{row};1H\x1b[2K" in out
+    assert "\x1b[23;1H" not in out and "\x1b[24;1H" not in out
 
 
 # =========================================================================
