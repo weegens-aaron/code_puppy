@@ -159,6 +159,38 @@ def _tick_line_editor() -> None:
         pass
 
 
+#: Seconds between idle-tick bottom-bar geometry polls (the 50ms listener
+#: tick is the only always-alive heartbeat — but polling terminal size
+#: every tick is pointless churn; ~5 ticks is plenty responsive).
+_RESIZE_POLL_INTERVAL = 0.25
+_last_resize_poll = 0.0
+
+
+def _tick_resize_poll() -> None:
+    """Throttled bottom-bar geometry poll on idle listener ticks.
+
+    Windows has no SIGWINCH: with no repaint traffic at idle, a resize
+    goes unnoticed until the next keypress — the bar lingers painted at
+    the old bottom (mid-screen after a maximize). The listener thread is
+    the only always-alive ticker, so it owns the poll; the bar's
+    ``poll_resize`` is a cheap size compare when nothing changed.
+    """
+    global _last_resize_poll
+    import time
+
+    now = time.monotonic()
+    if now - _last_resize_poll < _RESIZE_POLL_INTERVAL:
+        return
+    _last_resize_poll = now
+    try:
+        from code_puppy.messaging.bottom_bar import get_bottom_bar
+
+        get_bottom_bar().poll_resize()
+    except Exception:
+        # A broken bar must never kill the listener thread.
+        pass
+
+
 # =============================================================================
 # Dynamic cancel-agent handler (persistent listener, Phase A)
 # =============================================================================
@@ -465,8 +497,9 @@ def _listen_windows(
                                 value, on_escape, cancel_agent_char, on_cancel_agent
                             )
             else:
-                # Idle tick: let a pending bare ESC expire.
+                # Idle tick: let a pending bare ESC expire; notice resizes.
                 _tick_line_editor()
+                _tick_resize_poll()
         except Exception:
             emit_warning(
                 "Windows key listener error; Ctrl+C is still available for cancel."
@@ -595,8 +628,10 @@ def _listen_posix(
             except Exception:
                 break
             if not read_ready:
-                # Idle tick: let a pending bare ESC expire.
+                # Idle tick: let a pending bare ESC expire; notice resizes
+                # (SIGWINCH only invalidates geometry — it never paints).
                 _tick_line_editor()
+                _tick_resize_poll()
                 continue
             chunk = _read_chunk(fd, decoder)
             if chunk is None:

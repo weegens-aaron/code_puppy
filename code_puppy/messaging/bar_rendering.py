@@ -9,6 +9,7 @@ machinery stays in :mod:`code_puppy.messaging.bottom_bar`.
 from __future__ import annotations
 
 import shutil
+import sys
 import unicodedata
 from typing import List, Optional, Tuple
 
@@ -46,6 +47,54 @@ def default_get_size() -> Tuple[int, int]:
         return max(1, size.columns), max(1, size.lines)
     except Exception:
         return 80, 24
+
+
+def default_get_cursor_pos() -> Optional[Tuple[int, int]]:
+    """Cursor ``(row, col)``, 1-based, viewport-relative — or ``None``.
+
+    Windows-only: ``GetConsoleScreenBufferInfo`` on the console output
+    handle. Deliberately NOT DSR (``CSI 6n``) — the DSR reply arrives on
+    stdin, where the key-listener thread would eat it. POSIX (and any
+    failure: redirected handle, viewport scrolled away from the cursor)
+    returns ``None``; callers fall back to blind scrolling.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+
+        class _Coord(ctypes.Structure):
+            _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+        class _Rect(ctypes.Structure):
+            _fields_ = [
+                ("Left", ctypes.c_short),
+                ("Top", ctypes.c_short),
+                ("Right", ctypes.c_short),
+                ("Bottom", ctypes.c_short),
+            ]
+
+        class _Info(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", _Coord),
+                ("dwCursorPosition", _Coord),
+                ("wAttributes", ctypes.c_ushort),
+                ("srWindow", _Rect),
+                ("dwMaximumWindowSize", _Coord),
+            ]
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        info = _Info()
+        if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)):
+            return None
+        row = info.dwCursorPosition.Y - info.srWindow.Top + 1
+        col = info.dwCursorPosition.X - info.srWindow.Left + 1
+        if row < 1 or col < 1:
+            return None  # cursor above the visible viewport (user scrolled)
+        return row, col
+    except Exception:
+        return None
 
 
 def sanitize(text: str) -> str:
@@ -315,6 +364,7 @@ __all__ = [
     "WRAP_ON",
     "clip_cells",
     "count_prompt_rows",
+    "default_get_cursor_pos",
     "default_get_size",
     "render_prompt_block",
     "render_styled_line",

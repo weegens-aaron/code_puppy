@@ -43,50 +43,21 @@ from __future__ import annotations
 
 import atexit
 import logging
-import signal
 import sys
 import threading
 from contextlib import contextmanager
 from typing import Callable, Iterator, Optional, TextIO, Tuple
 
-from .bar_rendering import (
-    CLEAR_LINE as _CLEAR_LINE,
-)
-from .bar_rendering import (
-    CURSOR_HIDE as _CURSOR_HIDE,
-)
+from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin
+from .bar_region import RegionLifecycleMixin
 from .bar_rendering import (
     CURSOR_SHOW as _CURSOR_SHOW,
-)
-from .bar_rendering import (
     MODKEYS_OFF as _MODKEYS_OFF,
-)
-from .bar_rendering import (
-    MODKEYS_ON as _MODKEYS_ON,
-)
-from .bar_rendering import (
     PASTE_OFF as _PASTE_OFF,
-)
-from .bar_rendering import (
-    PASTE_ON as _PASTE_ON,
-)
-from .bar_rendering import (
-    RESET_REGION as _RESET_REGION,
-)
-from .bar_rendering import (
-    RESTORE_CURSOR as _RESTORE_CURSOR,
-)
-from .bar_rendering import (
-    SAVE_CURSOR as _SAVE_CURSOR,
-)
-from .bar_rendering import (
+    default_get_cursor_pos as _default_get_cursor_pos,
     default_get_size as _default_get_size,
-)
-from .bar_rendering import (
     sanitize as _sanitize,
 )
-
-from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +77,7 @@ PANEL_MAX_ROWS = 4
 POPUP_MAX_ROWS = 6
 
 SizeProvider = Callable[[], Tuple[int, int]]
+CursorPosProvider = Callable[[], Optional[Tuple[int, int]]]
 
 
 # =============================================================================
@@ -113,7 +85,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(BarPainterMixin):
+class BottomBar(RegionLifecycleMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -124,10 +96,12 @@ class BottomBar(BarPainterMixin):
         self,
         stream: Optional[TextIO] = None,
         get_size: Optional[SizeProvider] = None,
+        get_cursor_pos: Optional[CursorPosProvider] = None,
     ) -> None:
         self._lock = threading.RLock()
         self._stream = stream
         self._get_size = get_size or _default_get_size
+        self._get_cursor_pos = get_cursor_pos
         self._active = False  # user-facing started state
         self._region_up = False  # is DECSTBM currently in effect?
         self._suspend_depth = 0
@@ -337,221 +311,6 @@ class BottomBar(BarPainterMixin):
                     self._establish()
 
     # =========================================================================
-    # Geometry / resize
-    # =========================================================================
-
-    def _ensure_geometry(self) -> None:
-        """Re-establish the region if the terminal size changed.
-
-        Called lazily on every repaint — this is the whole resize story on
-        Windows (no SIGWINCH there).
-        """
-        cols, rows = self._safe_size()
-        if (cols, rows) != (self._cols, self._rows):
-            self._establish()
-
-    def _on_resize(self) -> None:
-        """SIGWINCH handler body: invalidate cached geometry ONLY.
-
-        The actual re-establish happens on the next repaint via the lazy
-        ``_ensure_geometry`` poll — unifying the POSIX and Windows resize
-        paths. The handler deliberately does NOT paint: an RLock is
-        reentrant on its own thread, so a handler firing mid-``_establish``
-        on the main thread could otherwise re-enter it and interleave
-        escape writes.
-        """
-        # Single int store — atomic enough for a poll hint; no lock needed
-        # (and taking the RLock here would defeat the point).
-        self._cols = -1
-
-    def _install_sigwinch(self) -> None:
-        """Chain a SIGWINCH handler — main thread + POSIX only.
-
-        ``signal.signal`` raises ``ValueError`` off the main thread, so
-        guard explicitly; resize still works via the lazy repaint poll.
-        """
-        with self._lock:
-            if self._sigwinch_installed:
-                return
-            if not hasattr(signal, "SIGWINCH"):
-                return
-            if threading.current_thread() is not threading.main_thread():
-                return
-            try:
-                previous = signal.getsignal(signal.SIGWINCH)
-
-                def _handler(signum, frame):  # pragma: no cover - signal glue
-                    try:
-                        self._on_resize()
-                    except Exception:
-                        pass
-                    if callable(previous) and previous not in (
-                        signal.SIG_DFL,
-                        signal.SIG_IGN,
-                    ):
-                        try:
-                            previous(signum, frame)
-                        except Exception:
-                            pass
-
-                signal.signal(signal.SIGWINCH, _handler)
-                self._sigwinch_installed = True
-            except Exception:
-                # Resize still works via the lazy repaint poll.
-                logger.debug("SIGWINCH handler install failed", exc_info=True)
-
-    # =========================================================================
-    # Region establish / teardown
-    # =========================================================================
-
-    def _establish(self) -> None:
-        """Set the scroll region, park the cursor inside it, paint rows."""
-        cols, rows = self._safe_size()
-        old_rows = self._rows
-        old_reserved = self._reserved if self._region_up else 0
-        self._cols, self._rows = cols, rows
-        reserved = self._total_reserved()
-        if rows < reserved + 1:
-            # Terminal too small for a region + reserved rows; if one was
-            # in effect, put the terminal back to normal and go dormant
-            # (hardware cursor comes back too — no region, no pseudo-cursor).
-            if self._region_up:
-                parts = [_RESET_REGION]
-                if self._cursor_hidden:
-                    parts.append(_CURSOR_SHOW)
-                    self._cursor_hidden = False
-                if self._paste_armed:
-                    parts.append(_PASTE_OFF)
-                    self._paste_armed = False
-                if self._modkeys_armed:
-                    parts.append(_MODKEYS_OFF)
-                    self._modkeys_armed = False
-                self._write("".join(parts))
-            self._region_up = False
-            return
-        top = rows - reserved
-        parts = []
-        if old_reserved and old_rows > 0:
-            # Re-establish after a resize: the old bar rows were painted
-            # at the PREVIOUS geometry and nothing repaints over them —
-            # without an explicit erase they linger as ghost duplicates
-            # ("multiples of UI elements") at their old positions while
-            # the fresh bar paints at the new bottom. Reset the region
-            # first so the erases can reach rows outside the incoming
-            # one, then blank the old reserved band (clamped to the new
-            # screen height).
-            parts.append(_RESET_REGION)
-            for row in range(
-                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
-            ):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        parts += [
-            # Push existing content up so the reserved rows start blank.
-            "\n" * reserved,
-            # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
-            f"\x1b[1;{top}r",
-            # CRITICAL: park the cursor INSIDE the scrollable area so
-            # subsequent console prints scroll rather than overwriting
-            # the reserved rows.
-            f"\x1b[{top};1H",
-        ]
-        if not self._cursor_hidden:
-            # DECTCEM hide: the prompt row renders a pseudo-cursor; the
-            # hardware cursor must not blink inside the scroll region.
-            parts.insert(0, _CURSOR_HIDE)
-            self._cursor_hidden = True
-        if not self._paste_armed:
-            # Bracketed paste while the bar owns input (Phase B).
-            parts.insert(0, _PASTE_ON)
-            self._paste_armed = True
-        if not self._modkeys_armed:
-            # modifyOtherKeys level 1: makes Shift+Enter encodable.
-            parts.insert(0, _MODKEYS_ON)
-            self._modkeys_armed = True
-        self._region_up = True
-        self._reserved = reserved
-        parts.append(self._reserved_rows_seq())
-        self._write("".join(parts))
-
-    def _resize_reserved(self, old_reserved: int) -> None:
-        """Grow/shrink the reserved area while the region is up.
-
-        Caller holds the lock and guarantees the terminal size hasn't
-        changed (``_ensure_geometry`` ran first). Scrollback-safe:
-
-        * Growing (region shrinks): scroll the region content up by the
-          delta first (``CSI S``), so the newly-reserved rows are blank
-          instead of eating visible output.
-        * Shrinking (region grows): clear the vacated reserved rows so no
-          stale panel paint lingers inside the scrollable area.
-
-        CURSOR CONTRACT: the transcript cursor is restored to wherever
-        the streaming writer left it (adjusted for the grow-scroll), NOT
-        parked at ``top;1``. Parking used to stomp half-typed streaming
-        lines: growing scrolls the in-progress line up onto the new
-        region bottom, so a blind park landed the cursor at column 1 ON
-        that line and the typewriter's next chunk overwrote its head
-        (the mangled-response artifact).
-        """
-        rows = self._rows
-        new_reserved = self._total_reserved()
-        if rows < new_reserved + 1:
-            # Not enough room for the bigger panel — full re-establish
-            # handles the dormant transition.
-            self._establish()
-            return
-        parts = [_SAVE_CURSOR]
-        delta_up = 0
-        if new_reserved > old_reserved:
-            # Blank the soon-to-be-reserved rows by scrolling content up.
-            delta_up = new_reserved - old_reserved
-            parts.append(f"\x1b[{delta_up}S")
-        else:
-            # Clear rows being returned to the scroll region.
-            for row in range(rows - old_reserved + 1, rows - new_reserved + 1):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        top = rows - new_reserved
-        parts.append(f"\x1b[1;{top}r")  # DECSTBM homes the cursor
-        # Restore the transcript cursor (DECSTBM homed it). After a grow
-        # the content scrolled up by ``delta_up``, so the cursor must
-        # follow its line up (CUU clamps at the region top — safe).
-        parts.append(_RESTORE_CURSOR)
-        if delta_up:
-            parts.append(f"\x1b[{delta_up}A")
-        self._reserved = new_reserved
-        parts.append(self._reserved_rows_seq())
-        self._write("".join(parts))
-
-    def _teardown(self) -> None:
-        """Reset to a full-screen region and clear the reserved rows.
-
-        Re-polls the terminal size: the cached geometry can be stale if
-        the terminal was resized while suspended (or right before stop),
-        and clearing rows computed from stale height either misses the
-        real reserved rows or clears mid-screen content.
-        """
-        rows = self._safe_size()[1]
-        reserved = self._reserved or self._total_reserved()
-        parts = [_RESET_REGION]
-        for row in range(max(1, rows - reserved + 1), rows + 1):
-            parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        parts.append(f"\x1b[{max(1, rows - reserved + 1)};1H")
-        if self._cursor_hidden:
-            # Give the hardware cursor back — every exit path (stop,
-            # suspend-enter, dormant, emergency) funnels through here.
-            parts.append(_CURSOR_SHOW)
-            self._cursor_hidden = False
-        if self._paste_armed:
-            parts.append(_PASTE_OFF)
-            self._paste_armed = False
-        if self._modkeys_armed:
-            parts.append(_MODKEYS_OFF)
-            self._modkeys_armed = False
-        self._write("".join(parts))
-        self._region_up = False
-        self._reserved = 0
-
-    # =========================================================================
     # Emergency restore (abnormal exit)
     # =========================================================================
 
@@ -616,6 +375,23 @@ class BottomBar(BarPainterMixin):
             return max(1, int(cols)), max(1, int(rows))
         except Exception:
             return 80, 24
+
+    def _cursor_position(self) -> Optional[Tuple[int, int]]:
+        """Transcript cursor ``(row, col)`` — or ``None`` when unknowable.
+
+        Injectable for tests; the default only queries the REAL console
+        and only when the bar is actually writing to it — an injected
+        stream isn't the console, so tests keep the deterministic blind
+        fallback unless they inject a provider.
+        """
+        if self._get_cursor_pos is not None:
+            try:
+                return self._get_cursor_pos()
+            except Exception:
+                return None
+        if self._stream is not None:
+            return None
+        return _default_get_cursor_pos()
 
     def _write(self, seq: str) -> None:
         """Write escapes straight to the stream with a flush; never raise."""
