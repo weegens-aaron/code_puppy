@@ -27,6 +27,19 @@ automatically by `svg_to_png.py` (override with `CHROME_PATH`).
 > (`rich_renderer.py`) — it streams via `event_stream_handler.py`. Use
 > `--surface stream` for that text.
 
+### Comparison capture: fresh vs resumed
+
+`session_render_capture.py` renders one shared conversation through **both** the
+live path and the resume path (`display_resumed_history` in
+`command_line/autosave_menu.py`) and stitches a labeled before/after PNG. Useful
+because the two paths diverge sharply — resume flattens tool calls/diffs to dim
+one-liners and merges thinking into the answer block.
+
+```bash
+python tools/session_render_capture.py        # -> tools/render_out_session/comparison.png
+python tools/session_render_capture.py --no-png   # SVGs only, skip Chromium
+```
+
 ## Usage
 
 ```bash
