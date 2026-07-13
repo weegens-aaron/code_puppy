@@ -1,29 +1,41 @@
 """Remote render-capture harness for Code Puppy's terminal output.
 
-Drives a scripted "conversation" through the *real* RichConsoleRenderer against
-a Rich Console in record mode, then exports the resulting terminal frame to SVG
-(and plain text). This lets rendering changes be observed remotely — no live
-LLM, no interactive terminal required. The fixtures below stand in for a real
-model stream; swap/extend them to reproduce whatever rendering case you're
-working on.
+Drives scripted, deterministic fixtures through Code Puppy's *real* renderers
+and exports the resulting terminal frame to SVG + plain text. This lets terminal
+rendering changes be observed remotely — no live LLM, no interactive terminal.
+The fixtures stand in for a real model stream ("mock the stream"); swap/extend
+them to reproduce whatever rendering case you're working on.
+
+Two render surfaces are covered via ``--surface``:
+
+* ``message`` — the RichConsoleRenderer (rich_renderer.py): banners, tool calls,
+  diffs, reasoning, shell output, status panels.
+* ``stream``  — the streaming assistant text (event_stream_handler.py + termflow):
+  the answer typing out as markdown, plus thinking blocks. Driven by a mocked
+  async stream of pydantic-ai part events.
 
 Usage:
-    python tools/render_capture.py                # default fixture -> out dir
-    python tools/render_capture.py --width 120    # override terminal width
-    python tools/render_capture.py --out /some/dir --title "diff case"
+    python tools/render_capture.py                       # message surface
+    python tools/render_capture.py --surface stream      # streaming markdown
+    python tools/render_capture.py --width 120 --out /tmp/frames
 
-Output:
-    <out>/frame.svg   Faithful terminal frame (colors, panels, markdown)
-    <out>/frame.txt   Plain-text version of the same frame
+Output (in <out>):
+    frame.svg   Faithful terminal frame (colors, panels, markdown)
+    frame.txt   Plain-text version of the same frame
+
+Rasterize to PNG for phone viewing with the pre-installed Chromium — see
+tools/README_render_capture.md.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import io
 from pathlib import Path
 
 from rich.console import Console
+from rich.text import Text
 
 from code_puppy.messaging import rich_renderer as _rr
 from code_puppy.messaging.bus import MessageBus
@@ -39,12 +51,53 @@ from code_puppy.messaging.messages import (
 from code_puppy.messaging.rich_renderer import RichConsoleRenderer
 
 
-def default_fixture():
-    """A representative sequence of messages a real turn would emit.
+# =============================================================================
+# Shared helpers
+# =============================================================================
 
-    Exercises the main render paths: status text, agent thinking, a shell
-    command + its output, a file diff, and a markdown agent response.
+
+def _new_console(width: int) -> Console:
+    """A truecolor, terminal-forcing console whose output goes to a buffer."""
+    return Console(
+        record=True,
+        force_terminal=True,
+        color_system="truecolor",
+        width=width,
+        file=io.StringIO(),
+    )
+
+
+def _write_frame(console: Console, out_dir: Path, title: str) -> Path:
+    """Export a recording console's frame to SVG + text."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    svg_path = out_dir / "frame.svg"
+    # export_* clears the record buffer by default; keep it so both succeed.
+    (out_dir / "frame.txt").write_text(
+        console.export_text(clear=False), encoding="utf-8"
+    )
+    svg_path.write_text(console.export_svg(title=title, clear=False), encoding="utf-8")
+    return svg_path
+
+
+def _write_frame_from_ansi(raw: str, out_dir: Path, width: int, title: str) -> Path:
+    """Re-parse a raw ANSI stream into a recording console, then export.
+
+    Needed for the streaming surface: termflow writes ANSI straight to
+    ``console.file``, bypassing Rich's record buffer, so we capture the raw
+    bytes and re-render them faithfully here.
     """
+    console = _new_console(width)
+    console.print(Text.from_ansi(raw), end="")
+    return _write_frame(console, out_dir, title)
+
+
+# =============================================================================
+# Surface 1: message renderer (rich_renderer.py)
+# =============================================================================
+
+
+def message_fixture():
+    """A representative sequence of messages a real turn would emit."""
     return [
         TextMessage(level=MessageLevel.INFO, text="Loaded agent 'code-puppy' 🐶"),
         AgentReasoningMessage(
@@ -69,27 +122,20 @@ def default_fixture():
                 DiffLine(line_number=12, type="context", content=""),
                 DiffLine(line_number=13, type="remove", content="def get(url):"),
                 DiffLine(
-                    line_number=13,
-                    type="add",
-                    content="def get(url, retries=4):",
+                    line_number=13, type="add", content="def get(url, retries=4):"
                 ),
             ],
         ),
-        # NOTE: AgentResponseMessage is a deliberate no-op in the renderer —
-        # the final assistant text/markdown streams through
-        # event_stream_handler.py (termflow) on a separate console. This
-        # harness covers the *message renderer* surface; see the module
-        # docstring for the streaming path.
         TextMessage(level=MessageLevel.SUCCESS, text="All tests passing ✅"),
     ]
 
 
 def _force_output_level(level: str) -> None:
-    """Pin the renderer's density level without touching global config.
+    """Pin the renderers' density level without touching global config.
 
-    The renderer imported these getters by name at module load, so patching
-    them here controls suppression/collapse without writing to puppy.cfg
-    (which may not exist in a fresh/remote container).
+    Both renderer modules imported these getters by name at import time, so
+    patching them here controls suppression/collapse without writing to
+    puppy.cfg (which may not exist in a fresh/remote container).
     """
     _rr.get_output_level = lambda: level
     if level == "high":
@@ -97,39 +143,104 @@ def _force_output_level(level: str) -> None:
         _rr.get_suppress_thinking_messages = lambda: False
 
 
-def capture(messages, out_dir: Path, width: int, title: str) -> Path:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    # record=True captures rendered segments regardless of `file`; route the
-    # live echo to a throwaway buffer so running the harness stays quiet.
-    console = Console(
-        record=True,
-        force_terminal=True,
-        color_system="truecolor",
-        width=width,
-        file=io.StringIO(),
-    )
+def capture_message(out_dir: Path, width: int, title: str) -> Path:
+    console = _new_console(width)
     renderer = RichConsoleRenderer(bus=MessageBus(), console=console)
-    for msg in messages:
+    for msg in message_fixture():
         renderer._render_sync(msg)
+    return _write_frame(console, out_dir, title)
 
-    svg_path = out_dir / "frame.svg"
-    txt_path = out_dir / "frame.txt"
-    # export_* clears the record buffer by default; keep it so both succeed.
-    txt_path.write_text(console.export_text(clear=False), encoding="utf-8")
-    svg_path.write_text(
-        console.export_svg(title=title, clear=False), encoding="utf-8"
+
+# =============================================================================
+# Surface 2: streaming assistant text (event_stream_handler.py + termflow)
+# =============================================================================
+
+
+def stream_events():
+    """A mocked pydantic-ai part-event stream: a thinking block then markdown.
+
+    Chunked mid-word on purpose so the termflow line-buffering / block
+    finalization paths are exercised the same way a live stream hits them.
+    """
+    from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent
+    from pydantic_ai.messages import (
+        TextPart,
+        TextPartDelta,
+        ThinkingPart,
+        ThinkingPartDelta,
     )
-    return svg_path
+
+    thinking = ["I'll add exponential ", "backoff with jitter ", "to get()."]
+    markdown = [
+        "## Done\n\n",
+        "Added **exponential backoff** to `get()`:\n\n",
+        "- Retries up to **4** times\n",
+        "- Delays: `2s, 4s, 8s, 16s`\n",
+        "- Jitter via `random.uniform`\n\n",
+        "```python\n",
+        "for attempt in range(retries):\n",
+        "    try:\n",
+        "        return _do_get(url)\n",
+        "    except TransientError:\n",
+        "        time.sleep(2 ** attempt)\n",
+        "```\n",
+    ]
+
+    events = [PartStartEvent(index=0, part=ThinkingPart(content=""))]
+    for chunk in thinking:
+        events.append(
+            PartDeltaEvent(index=0, delta=ThinkingPartDelta(content_delta=chunk))
+        )
+    events.append(PartEndEvent(index=0, part=ThinkingPart(content="".join(thinking))))
+
+    events.append(PartStartEvent(index=1, part=TextPart(content="")))
+    for chunk in markdown:
+        events.append(
+            PartDeltaEvent(index=1, delta=TextPartDelta(content_delta=chunk))
+        )
+    events.append(PartEndEvent(index=1, part=TextPart(content="".join(markdown))))
+    return events
+
+
+def capture_stream(out_dir: Path, width: int, title: str, level: str) -> Path:
+    from code_puppy.agents import event_stream_handler as esh
+
+    # Deterministic capture: disable smooth (typewriter) streaming so output is
+    # synchronous, and pin output level so thinking is not suppressed.
+    esh.make_smooth_termflow_writer = lambda target: None
+    esh.make_thinking_smoother = lambda console: None
+    esh.get_output_level = lambda: level
+
+    console = _new_console(width)
+    esh.set_streaming_console(console)
+
+    async def _gen():
+        for event in stream_events():
+            yield event
+
+    asyncio.run(esh.event_stream_handler(None, _gen()))
+
+    # termflow wrote raw ANSI to console.file; re-parse it into a fresh frame.
+    raw = console.file.getvalue()
+    return _write_frame_from_ansi(raw, out_dir, width, title)
+
+
+# =============================================================================
+# CLI
+# =============================================================================
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--surface",
+        default="message",
+        choices=["message", "stream"],
+        help="which render surface to capture",
+    )
     parser.add_argument("--width", type=int, default=100, help="terminal columns")
     parser.add_argument(
-        "--out",
-        type=Path,
-        default=Path("tools/render_out"),
-        help="output directory",
+        "--out", type=Path, default=Path("tools/render_out"), help="output directory"
     )
     parser.add_argument("--title", default="code-puppy", help="SVG window title")
     parser.add_argument(
@@ -141,7 +252,11 @@ def main() -> None:
     args = parser.parse_args()
 
     _force_output_level(args.output_level)
-    svg_path = capture(default_fixture(), args.out, args.width, args.title)
+    if args.surface == "message":
+        svg_path = capture_message(args.out, args.width, args.title)
+    else:
+        svg_path = capture_stream(args.out, args.width, args.title, args.output_level)
+
     print(f"Wrote {svg_path}")
     print(f"Wrote {svg_path.with_name('frame.txt')}")
 
