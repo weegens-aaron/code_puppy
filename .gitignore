@@ -49,4 +49,4 @@ code_puppy/bundled_skills/
 .state/
 
 # Render-capture harness output frames (generated)
-tools/render_out/
+tools/render_out*/

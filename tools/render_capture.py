@@ -195,9 +195,7 @@ def stream_events():
 
     events.append(PartStartEvent(index=1, part=TextPart(content="")))
     for chunk in markdown:
-        events.append(
-            PartDeltaEvent(index=1, delta=TextPartDelta(content_delta=chunk))
-        )
+        events.append(PartDeltaEvent(index=1, delta=TextPartDelta(content_delta=chunk)))
     events.append(PartEndEvent(index=1, part=TextPart(content="".join(markdown))))
     return events
 
